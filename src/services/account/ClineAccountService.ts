@@ -50,7 +50,11 @@ export class ClineAccountService {
 	 * @returns The API response data
 	 * @throws Error if the API key is not found or the request fails
 	 */
-	private async authenticatedRequest<T>(endpoint: string, config: AxiosRequestConfig = {}): Promise<T> {
+	private async authenticatedRequest<T>(
+		endpoint: string,
+		config: AxiosRequestConfig = {},
+		options?: { allowNullData?: boolean },
+	): Promise<T> {
 		const url = new URL(endpoint, this.baseUrl).toString() // Validate URL
 		// IMPORTANT: Prefixed with 'workos:' so backend can route verification to WorkOS provider
 		const clineAccountAuthToken = await this._authService.getAuthToken()
@@ -76,7 +80,7 @@ export class ClineAccountService {
 		if (status < 200 || status >= 300) {
 			throw new Error(`Request to ${endpoint} failed with status ${status}`)
 		}
-		if (response.statusText !== "No Content" && (!response.data || !response.data.data)) {
+		if (response.statusText !== "No Content" && (!response.data || (!response.data.data && !options?.allowNullData))) {
 			throw new Error(`Invalid response from ${endpoint} API`)
 		}
 		if (typeof response.data === "object" && !response.data.success) {
@@ -245,8 +249,13 @@ export class ClineAccountService {
 	 */
 	async fetchUserRemoteConfig(): Promise<UserRemoteConfigDiscoveryResponse | undefined> {
 		try {
-			const data = await this.authenticatedRequest<UserRemoteConfigDiscoveryResponse>(CLINE_API_ENDPOINT.USER_REMOTE_CONFIG)
-			return data
+			const data = await this.authenticatedRequest<UserRemoteConfigDiscoveryResponse | null>(
+				CLINE_API_ENDPOINT.USER_REMOTE_CONFIG,
+				{},
+				{ allowNullData: true },
+			)
+			// Backend returns 200 with data: null when no org has remote config
+			return data ?? undefined
 		} catch (error) {
 			Logger.error("Failed to fetch user remote config discovery:", error)
 			return undefined

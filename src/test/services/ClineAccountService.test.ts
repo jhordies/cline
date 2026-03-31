@@ -61,6 +61,16 @@ describe("ClineAccountService.fetchUserRemoteConfig", () => {
 		assert.strictEqual(result, undefined)
 	})
 
+	it("returns undefined when backend returns data: null (no org has remote config)", async () => {
+		// When allowNullData is true and backend returns { success: true, data: null },
+		// authenticatedRequest returns null. fetchUserRemoteConfig should coalesce to undefined.
+		sandbox.stub(service as unknown as { authenticatedRequest: () => unknown }, "authenticatedRequest").resolves(null)
+
+		const result = await service.fetchUserRemoteConfig()
+
+		assert.strictEqual(result, undefined)
+	})
+
 	it("returns response with isFallback=true when backend falls back", async () => {
 		const mockResponse = {
 			organizationId: "org-fallback",
