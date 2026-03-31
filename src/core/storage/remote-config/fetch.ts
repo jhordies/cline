@@ -1,5 +1,6 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios"
 import { Controller } from "@/core/controller"
+import { ClineAccountService } from "@/services/account/ClineAccountService"
 import { buildBasicClineHeaders } from "@/services/EnvUtils"
 import { getAxiosSettings } from "@/shared/net"
 import { Logger } from "@/shared/services/Logger"
@@ -157,42 +158,48 @@ async function fetchApiKeysForOrganization(organizationId: string): Promise<APIK
 }
 
 /**
- * Scans all user organizations to find the first one with an enabled remote configuration.
+ * Uses the user-level remote-config discovery endpoint to find the best organization
+ * with remote config enabled, respecting local admin/owner opt-out.
  *
- * @returns Object containing the organization ID and config, or undefined if none found
+ * Algorithm:
+ * 1. Call GET /api/v1/users/me/remote-config for discovery.
+ * 2. If backend returns no config (null data), no org has remote config → return undefined.
+ * 3. Use the backend-selected org if it is locally allowed (not opted-out by admin/owner).
+ * 4. If the selected org is locally opted-out, iterate the returned organizations list
+ *    and pick the first one that is locally allowed.
+ * 5. If no org is locally allowed, return undefined.
+ *
+ * @returns Object containing the chosen organizationId, or undefined if none qualify.
  */
-async function findOrganizationWithRemoteConfig(): Promise<{ organizationId: string; config: RemoteConfig } | undefined> {
-	const authService = AuthService.getInstance()
+export async function discoverRemoteConfigOrg(): Promise<{ organizationId: string } | undefined> {
+	const accountService = ClineAccountService.getInstance()
 
-	// Get all user organizations from cached auth info
-	const userOrganizations = authService.getUserOrganizations()
-
-	if (!userOrganizations || userOrganizations.length === 0) {
+	const discovery = await accountService.fetchUserRemoteConfig()
+	if (!discovery || !discovery.enabled) {
 		return undefined
 	}
 
-	// Scan each organization for remote config
-	for (const org of userOrganizations) {
-		if (!isRemoteConfigEnabled(org.organizationId)) {
-			continue
-		}
+	// Check the backend-selected org first
+	if (isRemoteConfigEnabled(discovery.organizationId)) {
+		return { organizationId: discovery.organizationId }
+	}
 
-		const remoteConfig = await fetchRemoteConfigForOrganization(org.organizationId)
-
-		if (remoteConfig) {
-			return {
-				organizationId: org.organizationId,
-				config: remoteConfig,
+	// Backend-selected org is locally opted-out; scan the organizations list
+	if (discovery.organizations) {
+		for (const org of discovery.organizations) {
+			if (isRemoteConfigEnabled(org.organizationId)) {
+				return { organizationId: org.organizationId }
 			}
 		}
 	}
 
+	// No org is locally allowed
 	return undefined
 }
 
 /**
  * Ensures the user is in the correct organization with remote configuration enabled.
- * Automatically switches to the organization if needed and applies the remote config.
+ * Uses the user-level discovery endpoint instead of sequential per-org probing.
  *
  * @param controller The controller instance
  * @returns RemoteConfig if found and applied, undefined otherwise
@@ -201,29 +208,38 @@ async function ensureUserInOrgWithRemoteConfig(controller: Controller): Promise<
 	const authService = AuthService.getInstance()
 
 	try {
-		// Find an organization with remote config
-		const result = await findOrganizationWithRemoteConfig()
+		// Step 1: Discover which org to use via user-level endpoint
+		const discovered = await discoverRemoteConfigOrg()
 
-		if (!result) {
+		if (!discovered) {
 			clearRemoteConfig()
 			controller.postStateToWebview()
 			return undefined
 		}
 
-		const { organizationId, config } = result
+		const { organizationId } = discovered
 
-		// Check if we need to switch organizations
+		// Step 2: Fetch the full org-level remote config for the chosen org
+		const remoteConfig = await fetchRemoteConfigForOrganization(organizationId)
+
+		if (!remoteConfig) {
+			clearRemoteConfig()
+			controller.postStateToWebview()
+			return undefined
+		}
+
+		// Step 3: Switch accounts only if the chosen org differs from the current active org
 		const currentActiveOrgId = authService.getActiveOrganizationId()
 		if (currentActiveOrgId !== organizationId) {
 			await controller.accountService.switchAccount(organizationId)
 		}
 
+		// Step 4: Fetch and store API keys for configured providers
 		const configuredApiKeys: ConfiguredAPIKeys = {}
-		// Fetch and store API keys for configured providers
-		const hasConfiguredProviders = config.providerSettings && Object.keys(config.providerSettings).length > 0
+		const hasConfiguredProviders = remoteConfig.providerSettings && Object.keys(remoteConfig.providerSettings).length > 0
 		if (hasConfiguredProviders) {
 			const apiKeys = await fetchApiKeysForOrganization(organizationId)
-			if (config.providerSettings?.LiteLLM) {
+			if (remoteConfig.providerSettings?.LiteLLM) {
 				if (apiKeys.litellm) {
 					configuredApiKeys["litellm"] = true
 					controller.stateManager.setSecret("remoteLiteLlmApiKey", apiKeys.litellm)
@@ -237,16 +253,16 @@ async function ensureUserInOrgWithRemoteConfig(controller: Controller): Promise<
 			controller.stateManager.setSecret("remoteLiteLlmApiKey", undefined)
 		}
 
-		// Cache and apply the remote config
-		await writeRemoteConfigToCache(organizationId, config)
+		// Step 5: Cache and apply the remote config
+		await writeRemoteConfigToCache(organizationId, remoteConfig)
 		if (isRemoteConfigEnabled(organizationId)) {
-			await applyRemoteConfig(config, configuredApiKeys, controller.mcpHub)
+			await applyRemoteConfig(remoteConfig, configuredApiKeys, controller.mcpHub)
 		} else {
 			clearRemoteConfig()
 		}
 		controller.postStateToWebview()
 
-		return config
+		return remoteConfig
 	} catch (error) {
 		Logger.error("Failed to ensure user in organization with remote config:", error)
 		return undefined
@@ -255,8 +271,9 @@ async function ensureUserInOrgWithRemoteConfig(controller: Controller): Promise<
 
 /**
  * Main entry point for fetching remote configuration.
- * Scans all user organizations, switches to the one with remote config if found,
- * and applies the configuration.
+ * Uses the user-level discovery endpoint (GET /api/v1/users/me/remote-config)
+ * to find the right org in a single call, then fetches the full config and API keys
+ * only for the chosen org.
  *
  * It catches any exceptions, logs them and does not propagate them to the caller.
  *

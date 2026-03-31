@@ -83,5 +83,32 @@ export interface OrganizationUsageTransaction {
 	userId: string
 }
 
+/**
+ * An organization that has remote config enabled, returned by
+ * GET /api/v1/users/me/remote-config.
+ */
+export interface RemoteConfigOrganization {
+	organizationId: string
+	name: string
+}
+
+/**
+ * Response from GET /api/v1/users/me/remote-config.
+ * The backend selects the user's active org if it has remote config enabled,
+ * otherwise falls back to the first enabled org (enterprise orgs sorted first).
+ */
+export interface UserRemoteConfigDiscoveryResponse {
+	/** Organization ID of the selected remote config */
+	organizationId: string
+	/** The remote configuration JSON value */
+	value: string
+	/** Whether remote config is enabled */
+	enabled: boolean
+	/** True when the authenticated org has no remote config and a fallback org was selected */
+	isFallback: boolean
+	/** All organizations with remote config enabled */
+	organizations: RemoteConfigOrganization[]
+}
+
 // Used in cline.ts provider and in webview-ui/src/components/chat/ChatRow.tsx to display the login button
 export const CLINE_ACCOUNT_AUTH_ERROR_MESSAGE = "Unauthorized: Please sign in to Cline before trying again."

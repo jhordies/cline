@@ -5,6 +5,7 @@ import type {
 	OrganizationUsageTransaction,
 	PaymentTransaction,
 	UsageTransaction,
+	UserRemoteConfigDiscoveryResponse,
 	UserResponse,
 } from "@shared/ClineAccount"
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios"
@@ -230,6 +231,24 @@ export class ClineAccountService {
 			return data.items
 		} catch (error) {
 			Logger.error("Failed to fetch active organization transactions (RPC):", error)
+			return undefined
+		}
+	}
+
+	/**
+	 * Fetches the user-level remote config discovery response.
+	 * Returns the backend-selected org, its config value, and the full list of
+	 * remote-config-enabled organizations so the client can apply local opt-out logic.
+	 *
+	 * GET /api/v1/users/me/remote-config
+	 * @returns UserRemoteConfigDiscoveryResponse or undefined if failed / no config found
+	 */
+	async fetchUserRemoteConfig(): Promise<UserRemoteConfigDiscoveryResponse | undefined> {
+		try {
+			const data = await this.authenticatedRequest<UserRemoteConfigDiscoveryResponse>(CLINE_API_ENDPOINT.USER_REMOTE_CONFIG)
+			return data
+		} catch (error) {
+			Logger.error("Failed to fetch user remote config discovery:", error)
 			return undefined
 		}
 	}
