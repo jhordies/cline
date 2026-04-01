@@ -104,8 +104,6 @@ export interface UserRemoteConfigDiscoveryResponse {
 	value: string
 	/** Whether remote config is enabled */
 	enabled: boolean
-	/** True when the authenticated org has no remote config and a fallback org was selected */
-	isFallback: boolean
 	/** All organizations with remote config enabled */
 	organizations: RemoteConfigOrganization[]
 }

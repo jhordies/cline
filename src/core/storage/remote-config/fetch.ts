@@ -228,7 +228,11 @@ async function ensureUserInOrgWithRemoteConfig(controller: Controller): Promise<
 			return undefined
 		}
 
-		// Step 3: Switch accounts only if the chosen org differs from the current active org
+		// Step 3: Switch accounts only if the chosen org differs from the current active org.
+		// IMPORTANT: Churn prevention — only switch when selected active org is not in the
+		// returned organizations. Switch once per mismatch transition; short-circuit when
+		// active org already equals selected org. This avoids "fetch → switch → fetch again"
+		// infinite loops where each fetch triggers a new switch.
 		const currentActiveOrgId = authService.getActiveOrganizationId()
 		if (currentActiveOrgId !== organizationId) {
 			await controller.accountService.switchAccount(organizationId)

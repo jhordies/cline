@@ -39,7 +39,6 @@ describe("discoverRemoteConfigOrg", () => {
 			organizationId: "org-1",
 			value: "{}",
 			enabled: false,
-			isFallback: false,
 			organizations: [],
 		} satisfies UserRemoteConfigDiscoveryResponse)
 
@@ -52,7 +51,6 @@ describe("discoverRemoteConfigOrg", () => {
 			organizationId: "org-1",
 			value: '{"version":"v1"}',
 			enabled: true,
-			isFallback: false,
 			organizations: [
 				{ organizationId: "org-1", name: "Org 1" },
 				{ organizationId: "org-2", name: "Org 2" },
@@ -69,7 +67,6 @@ describe("discoverRemoteConfigOrg", () => {
 			organizationId: "org-1",
 			value: '{"version":"v1"}',
 			enabled: true,
-			isFallback: false,
 			organizations: [
 				{ organizationId: "org-1", name: "Org 1" },
 				{ organizationId: "org-2", name: "Org 2" },
@@ -89,7 +86,6 @@ describe("discoverRemoteConfigOrg", () => {
 			organizationId: "org-1",
 			value: '{"version":"v1"}',
 			enabled: true,
-			isFallback: false,
 			organizations: [
 				{ organizationId: "org-1", name: "Org 1" },
 				{ organizationId: "org-2", name: "Org 2" },
@@ -101,13 +97,12 @@ describe("discoverRemoteConfigOrg", () => {
 		assert.strictEqual(result, undefined)
 	})
 
-	it("handles isFallback=true and still respects local opt-out", async () => {
+	it("handles fallback org selection and still respects local opt-out", async () => {
 		// Backend selected org-2 as fallback (user's active org has no remote config)
 		fetchUserRemoteConfigStub.resolves({
 			organizationId: "org-2",
 			value: '{"version":"v1"}',
 			enabled: true,
-			isFallback: true,
 			organizations: [
 				{ organizationId: "org-2", name: "Enterprise Org" },
 				{ organizationId: "org-3", name: "Another Org" },
@@ -120,12 +115,11 @@ describe("discoverRemoteConfigOrg", () => {
 		assert.deepStrictEqual(result, { organizationId: "org-3" })
 	})
 
-	it("returns the backend-selected org even with isFallback=true if locally allowed", async () => {
+	it("returns the backend-selected fallback org if locally allowed", async () => {
 		fetchUserRemoteConfigStub.resolves({
 			organizationId: "org-2",
 			value: '{"version":"v1"}',
 			enabled: true,
-			isFallback: true,
 			organizations: [{ organizationId: "org-2", name: "Enterprise Org" }],
 		} satisfies UserRemoteConfigDiscoveryResponse)
 		isRemoteConfigEnabledStub.withArgs("org-2").returns(true)
@@ -139,7 +133,6 @@ describe("discoverRemoteConfigOrg", () => {
 			organizationId: "org-1",
 			value: '{"version":"v1"}',
 			enabled: true,
-			isFallback: false,
 			organizations: [],
 		} satisfies UserRemoteConfigDiscoveryResponse)
 		isRemoteConfigEnabledStub.withArgs("org-1").returns(false)
@@ -153,7 +146,6 @@ describe("discoverRemoteConfigOrg", () => {
 			organizationId: "org-1",
 			value: '{"version":"v1"}',
 			enabled: true,
-			isFallback: false,
 			organizations: [
 				{ organizationId: "org-1", name: "Org 1" },
 				{ organizationId: "org-2", name: "Org 2" },

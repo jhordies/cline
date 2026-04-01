@@ -23,7 +23,6 @@ describe("ClineAccountService.fetchUserRemoteConfig", () => {
 			organizationId: "org-123",
 			value: '{"version":"v1"}',
 			enabled: true,
-			isFallback: false,
 			organizations: [
 				{ organizationId: "org-123", name: "Test Org" },
 				{ organizationId: "org-456", name: "Another Org" },
@@ -36,7 +35,6 @@ describe("ClineAccountService.fetchUserRemoteConfig", () => {
 		assert.ok(result !== undefined, "result should not be undefined")
 		assert.strictEqual(result?.organizationId, "org-123")
 		assert.strictEqual(result?.enabled, true)
-		assert.strictEqual(result?.isFallback, false)
 		assert.strictEqual(result?.organizations.length, 2)
 		assert.strictEqual(result?.organizations[0].name, "Test Org")
 	})
@@ -71,12 +69,11 @@ describe("ClineAccountService.fetchUserRemoteConfig", () => {
 		assert.strictEqual(result, undefined)
 	})
 
-	it("returns response with isFallback=true when backend falls back", async () => {
+	it("returns response when backend selects fallback org", async () => {
 		const mockResponse = {
 			organizationId: "org-fallback",
 			value: '{"version":"v1"}',
 			enabled: true,
-			isFallback: true,
 			organizations: [{ organizationId: "org-fallback", name: "Fallback Org" }],
 		}
 		sandbox.stub(service as unknown as { authenticatedRequest: () => unknown }, "authenticatedRequest").resolves(mockResponse)
@@ -84,8 +81,8 @@ describe("ClineAccountService.fetchUserRemoteConfig", () => {
 		const result = await service.fetchUserRemoteConfig()
 
 		assert.ok(result !== undefined)
-		assert.strictEqual(result?.isFallback, true)
 		assert.strictEqual(result?.organizationId, "org-fallback")
+		assert.strictEqual(result?.organizations.length, 1)
 	})
 })
 
