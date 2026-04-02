@@ -187,6 +187,9 @@ export async function discoverRemoteConfigOrg(): Promise<{ organizationId: strin
 	// Backend-selected org is locally opted-out; scan the organizations list
 	if (discovery.organizations) {
 		for (const org of discovery.organizations) {
+			if (org.organizationId === discovery.organizationId) {
+				continue // already checked above
+			}
 			if (isRemoteConfigEnabled(org.organizationId)) {
 				return { organizationId: org.organizationId }
 			}
