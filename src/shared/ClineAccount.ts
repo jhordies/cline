@@ -87,7 +87,7 @@ export interface OrganizationUsageTransaction {
  * An organization that has remote config enabled, returned by
  * GET /api/v1/users/me/remote-config.
  */
-export interface RemoteConfigOrganization {
+export interface UserRemoteConfigOrganization {
 	organizationId: string
 	name: string
 }
@@ -105,7 +105,7 @@ export interface UserRemoteConfigDiscoveryResponse {
 	/** Whether remote config is enabled */
 	enabled: boolean
 	/** All organizations with remote config enabled */
-	organizations: RemoteConfigOrganization[]
+	organizations: UserRemoteConfigOrganization[]
 }
 
 // Used in cline.ts provider and in webview-ui/src/components/chat/ChatRow.tsx to display the login button

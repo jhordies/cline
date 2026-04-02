@@ -158,6 +158,17 @@ async function fetchApiKeysForOrganization(organizationId: string): Promise<APIK
 }
 
 /**
+ * Module-level switch tracker to prevent duplicate "fetch → switch → re-fetch"
+ * churn while still allowing retries after a failed switch.
+ */
+let _switchInFlight:
+	| {
+			organizationId: string
+			promise: Promise<void>
+	  }
+	| undefined
+
+/**
  * Uses the user-level remote-config discovery endpoint to find the best organization
  * with remote config enabled, respecting local admin/owner opt-out.
  *
@@ -165,13 +176,14 @@ async function fetchApiKeysForOrganization(organizationId: string): Promise<APIK
  * 1. Call GET /api/v1/users/me/remote-config for discovery.
  * 2. If backend returns no config (null data), no org has remote config → return undefined.
  * 3. Use the backend-selected org if it is locally allowed (not opted-out by admin/owner).
+ *    In this case, return the config value from discovery to avoid a redundant API call.
  * 4. If the selected org is locally opted-out, iterate the returned organizations list
- *    and pick the first one that is locally allowed.
+ *    and pick the first one that is locally allowed (no configValue — must be fetched separately).
  * 5. If no org is locally allowed, return undefined.
  *
- * @returns Object containing the chosen organizationId, or undefined if none qualify.
+ * @returns Object containing the chosen organizationId and optional configValue, or undefined if none qualify.
  */
-export async function discoverRemoteConfigOrg(): Promise<{ organizationId: string } | undefined> {
+export async function discoverRemoteConfigOrg(): Promise<{ organizationId: string; configValue?: string } | undefined> {
 	const accountService = ClineAccountService.getInstance()
 
 	const discovery = await accountService.fetchUserRemoteConfig()
@@ -179,17 +191,15 @@ export async function discoverRemoteConfigOrg(): Promise<{ organizationId: strin
 		return undefined
 	}
 
-	// Check the backend-selected org first
+	// Check the backend-selected org first — include configValue since it matches this org
 	if (isRemoteConfigEnabled(discovery.organizationId)) {
-		return { organizationId: discovery.organizationId }
+		return { organizationId: discovery.organizationId, configValue: discovery.value }
 	}
 
-	// Backend-selected org is locally opted-out; scan the organizations list
+	// Backend-selected org is locally opted-out; scan the organizations list.
+	// No configValue here — discovery value is for a different org.
 	if (discovery.organizations) {
 		for (const org of discovery.organizations) {
-			if (org.organizationId === discovery.organizationId) {
-				continue // already checked above
-			}
 			if (isRemoteConfigEnabled(org.organizationId)) {
 				return { organizationId: org.organizationId }
 			}
@@ -220,10 +230,22 @@ async function ensureUserInOrgWithRemoteConfig(controller: Controller): Promise<
 			return undefined
 		}
 
-		const { organizationId } = discovered
+		const { organizationId, configValue } = discovered
 
-		// Step 2: Fetch the full org-level remote config for the chosen org
-		const remoteConfig = await fetchRemoteConfigForOrganization(organizationId)
+		// Step 2: Parse the config value from discovery if available (avoids an extra
+		// API call when the backend-selected org was accepted directly). Falls back to
+		// the dedicated org-level endpoint when the value is unavailable (local opt-out
+		// fallback chose a different org) or when parsing fails.
+		let remoteConfig: RemoteConfig | undefined
+		if (configValue) {
+			try {
+				remoteConfig = RemoteConfigSchema.parse(JSON.parse(configValue))
+			} catch {
+				remoteConfig = await fetchRemoteConfigForOrganization(organizationId)
+			}
+		} else {
+			remoteConfig = await fetchRemoteConfigForOrganization(organizationId)
+		}
 
 		if (!remoteConfig) {
 			clearRemoteConfig()
@@ -232,12 +254,26 @@ async function ensureUserInOrgWithRemoteConfig(controller: Controller): Promise<
 		}
 
 		// Step 3: Switch accounts only if the chosen org differs from the current active org.
-		// Churn prevention: short-circuit when the active org already equals the chosen org,
-		// avoiding "fetch → switch → fetch again" infinite loops.
-		const currentActiveOrgId = authService.getActiveOrganizationId()
+		// If a switch to the same org is already in flight, re-entrant fetches wait for it
+		// instead of starting another switch or suppressing future retries after failures.
 		const currentActiveOrgId = authService.getActiveOrganizationId()
 		if (currentActiveOrgId !== organizationId) {
-			await controller.accountService.switchAccount(organizationId)
+			if (_switchInFlight?.organizationId === organizationId) {
+				await _switchInFlight.promise
+			} else {
+				const switchPromise = controller.accountService.switchAccount(organizationId)
+				_switchInFlight = {
+					organizationId,
+					promise: switchPromise,
+				}
+				try {
+					await switchPromise
+				} finally {
+					if (_switchInFlight?.promise === switchPromise) {
+						_switchInFlight = undefined
+					}
+				}
+			}
 		}
 
 		// Step 4: Fetch and store API keys for configured providers
