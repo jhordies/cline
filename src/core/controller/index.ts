@@ -59,6 +59,7 @@ import { appendClineStealthModels } from "./models/refreshOpenRouterModels"
 import { checkCliInstallation } from "./state/checkCliInstallation"
 import { sendStateUpdate } from "./state/subscribeToState"
 import { sendChatButtonClickedEvent } from "./ui/subscribeToChatButtonClicked"
+import { WebRtcAdapter } from "../remote/WebRtcAdapter"
 
 /*
 https://github.com/microsoft/vscode-webview-ui-toolkit-samples/blob/main/default/weather-webview/src/providers/WeatherViewProvider.ts
@@ -1000,10 +1001,14 @@ export class Controller {
 			optOutOfRemoteConfig: this.stateManager.getGlobalSettingsKey("optOutOfRemoteConfig"),
 			doubleCheckCompletionEnabled,
 			lazyTeammateModeEnabled,
-			showFeatureTips,
+				showFeatureTips,
 			banners,
 			welcomeBanners,
 			openAiCodexIsAuthenticated,
+			remoteBridgeEnabled: this.stateManager.getGlobalSettingsKey("remoteBridgeEnabled"),
+			remoteBridgeInstanceId: this.stateManager.getGlobalSettingsKey("remoteBridgeInstanceId"),
+			remoteBridgeSignalingUrl: this.stateManager.getGlobalSettingsKey("remoteBridgeSignalingUrl"),
+			remoteBridgePeerConnected: WebRtcAdapter.getInstance()?.isPeerConnected() ?? false,
 		}
 	}
 
