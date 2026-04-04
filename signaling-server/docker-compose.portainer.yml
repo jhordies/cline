@@ -1,0 +1,27 @@
+version: "3.8"
+
+# Cline Remote Bridge — Signaling Server
+# Portainer Stack — self-contained, no local files needed
+#
+# Deploy:
+# 1. In Portainer → Stacks → Add Stack
+# 2. Paste this file content
+# 3. Click Deploy
+#
+# The server will be available at http://YOUR-NAS-IP:3000
+# Use this URL in Cline Settings → Remote Access → Signaling server URL
+
+services:
+  cline-signal:
+    image: ghcr.io/jhordies/cline-signal:latest
+    container_name: cline-signal
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
