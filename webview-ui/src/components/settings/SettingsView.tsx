@@ -30,12 +30,13 @@ import DebugSection from "./sections/DebugSection"
 import FeatureSettingsSection from "./sections/FeatureSettingsSection"
 import GeneralSettingsSection from "./sections/GeneralSettingsSection"
 import { RemoteConfigSection } from "./sections/RemoteConfigSection"
+import RemoteAccessSection from "./sections/RemoteAccessSection"
 import TerminalSettingsSection from "./sections/TerminalSettingsSection"
 
 const IS_DEV = process.env.IS_DEV
 
 // Tab definitions
-type SettingsTabID = "api-config" | "features" | "browser" | "terminal" | "general" | "about" | "debug" | "remote-config"
+type SettingsTabID = "api-config" | "features" | "browser" | "terminal" | "general" | "about" | "debug" | "remote-config" | "remote-access"
 interface SettingsTab {
 	id: SettingsTabID
 	name: string
@@ -97,6 +98,13 @@ export const SETTINGS_TABS: SettingsTab[] = [
 		headerText: "About",
 		icon: Info,
 	},
+	{
+		id: "remote-access",
+		name: "Remote Access",
+		tooltipText: "Remote Mobile Access",
+		headerText: "Remote Access",
+		icon: Wrench,
+	},
 	// Only show in dev mode
 	{
 		id: "debug",
@@ -140,6 +148,7 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			browser: BrowserSettingsSection,
 			terminal: TerminalSettingsSection,
 			"remote-config": RemoteConfigSection,
+			"remote-access": RemoteAccessSection,
 			about: AboutSection,
 			debug: DebugSection,
 		}),

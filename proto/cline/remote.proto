@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package cline;
+
+import "cline/common.proto";
+
+option go_package = "github.com/cline/grpc-go/cline";
+option java_multiple_files = true;
+option java_package = "bot.cline.proto";
+
+// Service for remote mobile bridge operations
+service RemoteService {
+  // Get current remote bridge status
+  rpc getRemoteStatus(EmptyRequest) returns (RemoteStatus);
+
+  // Enable or disable the remote bridge
+  rpc setRemoteEnabled(BooleanRequest) returns (RemoteStatus);
+
+  // Get pairing info (instanceId + sharedKey) for QR code display
+  rpc getPairingInfo(EmptyRequest) returns (PairingInfo);
+
+  // Update the signaling server URL
+  rpc setSignalingUrl(StringRequest) returns (RemoteStatus);
+
+  // Regenerate the shared key (invalidates existing mobile pairings)
+  rpc regenerateSharedKey(EmptyRequest) returns (PairingInfo);
+}
+
+message RemoteStatus {
+  bool enabled = 1;
+  string instance_id = 2;
+  bool peer_connected = 3;
+  int64 connected_since_ts = 4;
+  string signaling_url = 5;
+}
+
+message PairingInfo {
+  string instance_id = 1;
+  string signaling_url = 2;
+  // Base64-encoded 32-byte shared key — shown once for QR code, stored on mobile
+  string shared_key = 3;
+  // JSON string suitable for encoding into a QR code
+  string qr_payload = 4;
+}

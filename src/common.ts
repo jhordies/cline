@@ -1,5 +1,6 @@
 import { WebviewProvider } from "./core/webview"
 import "./utils/path" // necessary to have access to String.prototype.toPosix
+import { WebRtcAdapter } from "./core/remote/WebRtcAdapter"
 
 import { HostProvider } from "@/hosts/host-provider"
 import { Logger } from "@/shared/services/Logger"
@@ -79,7 +80,30 @@ export async function initialize(storageContext: StorageContext): Promise<Webvie
 
 	telemetryService.captureExtensionActivated()
 
+	// =============== Remote mobile bridge ===============
+	// Start WebRTC adapter if remote access was previously enabled
+	startRemoteBridgeIfEnabled(stateManager).catch((err) =>
+		Logger.error("[Cline] Failed to start remote bridge:", err),
+	)
+
 	return webview
+}
+
+async function startRemoteBridgeIfEnabled(stateManager: StateManager): Promise<void> {
+	const enabled = stateManager.getGlobalStateKey("remoteBridgeEnabled")
+	if (!enabled) return
+
+	const instanceId = stateManager.getGlobalStateKey("remoteBridgeInstanceId")
+	const signalingUrl = stateManager.getGlobalStateKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
+	const sharedKey = await stateManager.getSecretKey("remoteBridgeSharedKey")
+
+	if (!instanceId || !sharedKey) {
+		Logger.log("[Cline] Remote bridge enabled but missing instanceId or sharedKey — skipping start")
+		return
+	}
+
+	Logger.log(`[Cline] Starting remote bridge for instance ${instanceId}`)
+	await WebRtcAdapter.start(instanceId, signalingUrl, sharedKey)
 }
 
 async function showVersionUpdateAnnouncement(stateManager: StateManager) {
@@ -170,4 +194,7 @@ export async function tearDown(): Promise<void> {
 
 	// Clean up test mode
 	cleanupTestMode()
+
+	// Stop remote mobile bridge
+	await WebRtcAdapter.stop()
 }

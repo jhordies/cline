@@ -113,6 +113,10 @@ export interface ExtensionState {
 	banners?: BannerCardData[]
 	welcomeBanners?: BannerCardData[]
 	openAiCodexIsAuthenticated?: boolean
+	remoteBridgeEnabled?: boolean
+	remoteBridgeInstanceId?: string
+	remoteBridgeSignalingUrl?: string
+	remoteBridgePeerConnected?: boolean
 }
 
 export interface ClineMessage {

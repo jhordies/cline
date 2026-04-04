@@ -276,6 +276,11 @@ const USER_SETTINGS_FIELDS = {
 	lazyTeammateModeEnabled: { default: false as boolean },
 	showFeatureTips: { default: true as boolean },
 
+	// Remote mobile bridge
+	remoteBridgeEnabled: { default: false as boolean },
+	remoteBridgeInstanceId: { default: undefined as string | undefined },
+	remoteBridgeSignalingUrl: { default: "https://signal.cline.bot" as string },
+
 	// OpenTelemetry configuration
 	openTelemetryEnabled: { default: true as boolean },
 	openTelemetryMetricsExporter: { default: undefined as string | undefined },
@@ -349,6 +354,7 @@ const SECRETS_KEYS = [
 	"mcpOAuthSecrets",
 	"openai-codex-oauth-credentials", // JSON blob containing OAuth tokens for OpenAI Codex (ChatGPT subscription)
 	"wandbApiKey",
+	"remoteBridgeSharedKey",
 ] as const
 
 // WARNING, these are not ALL of the local state keys in practice. For example, FileContextTracker
