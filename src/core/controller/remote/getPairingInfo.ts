@@ -11,7 +11,7 @@ export async function getPairingInfo(controller: Controller, _request: EmptyRequ
 	const state = controller.stateManager
 
 	// Ensure instanceId exists
-	let instanceId = state.getGlobalStateKey("remoteBridgeInstanceId")
+	let instanceId = state.getGlobalSettingsKey("remoteBridgeInstanceId")
 	if (!instanceId) {
 		instanceId = crypto.randomUUID()
 		await state.setGlobalState("remoteBridgeInstanceId", instanceId)
@@ -24,7 +24,7 @@ export async function getPairingInfo(controller: Controller, _request: EmptyRequ
 		await state.setSecret("remoteBridgeSharedKey", sharedKey)
 	}
 
-	const signalingUrl = state.getGlobalStateKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
+	const signalingUrl = state.getGlobalSettingsKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
 
 	const qrPayload = JSON.stringify({
 		v: 1,

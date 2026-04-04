@@ -90,11 +90,11 @@ export async function initialize(storageContext: StorageContext): Promise<Webvie
 }
 
 async function startRemoteBridgeIfEnabled(stateManager: StateManager): Promise<void> {
-	const enabled = stateManager.getGlobalStateKey("remoteBridgeEnabled")
+	const enabled = stateManager.getGlobalSettingsKey("remoteBridgeEnabled")
 	if (!enabled) return
 
-	const instanceId = stateManager.getGlobalStateKey("remoteBridgeInstanceId")
-	const signalingUrl = stateManager.getGlobalStateKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
+	const instanceId = stateManager.getGlobalSettingsKey("remoteBridgeInstanceId")
+	const signalingUrl = stateManager.getGlobalSettingsKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
 	const sharedKey = await stateManager.getSecretKey("remoteBridgeSharedKey")
 
 	if (!instanceId || !sharedKey) {

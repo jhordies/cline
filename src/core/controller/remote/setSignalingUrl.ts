@@ -13,9 +13,9 @@ export async function setSignalingUrl(controller: Controller, request: StringReq
 
 	await state.setGlobalState("remoteBridgeSignalingUrl", newUrl)
 
-	const enabled = state.getGlobalStateKey("remoteBridgeEnabled") ?? false
+	const enabled = state.getGlobalSettingsKey("remoteBridgeEnabled") ?? false
 	if (enabled) {
-		const instanceId = state.getGlobalStateKey("remoteBridgeInstanceId") ?? ""
+		const instanceId = state.getGlobalSettingsKey("remoteBridgeInstanceId") ?? ""
 		const sharedKey = (await state.getSecretKey("remoteBridgeSharedKey")) ?? ""
 		await WebRtcAdapter.stop()
 		await WebRtcAdapter.start(instanceId, newUrl, sharedKey)
@@ -26,7 +26,7 @@ export async function setSignalingUrl(controller: Controller, request: StringReq
 	const adapter = WebRtcAdapter.getInstance()
 	return RemoteStatus.create({
 		enabled,
-		instanceId: state.getGlobalStateKey("remoteBridgeInstanceId") ?? "",
+		instanceId: state.getGlobalSettingsKey("remoteBridgeInstanceId") ?? "",
 		peerConnected: adapter?.isPeerConnected() ?? false,
 		connectedSinceTs: BigInt(adapter?.getConnectedSinceTs() ?? 0),
 		signalingUrl: newUrl,

@@ -14,7 +14,7 @@ export async function setRemoteEnabled(controller: Controller, request: BooleanR
 
 	if (enabled) {
 		// Generate instanceId if not already set
-		let instanceId = state.getGlobalStateKey("remoteBridgeInstanceId")
+		let instanceId = state.getGlobalSettingsKey("remoteBridgeInstanceId")
 		if (!instanceId) {
 			instanceId = crypto.randomUUID()
 			await state.setGlobalState("remoteBridgeInstanceId", instanceId)
@@ -28,7 +28,7 @@ export async function setRemoteEnabled(controller: Controller, request: BooleanR
 		}
 
 		// Start the WebRTC adapter
-		const signalingUrl = state.getGlobalStateKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
+		const signalingUrl = state.getGlobalSettingsKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
 		const sharedKey = (await state.getSecretKey("remoteBridgeSharedKey"))!
 		await WebRtcAdapter.start(instanceId, signalingUrl, sharedKey)
 	} else {
@@ -39,8 +39,8 @@ export async function setRemoteEnabled(controller: Controller, request: BooleanR
 	await state.setGlobalState("remoteBridgeEnabled", enabled)
 	await controller.postStateToWebview()
 
-	const instanceId = state.getGlobalStateKey("remoteBridgeInstanceId") ?? ""
-	const signalingUrl = state.getGlobalStateKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
+	const instanceId = state.getGlobalSettingsKey("remoteBridgeInstanceId") ?? ""
+	const signalingUrl = state.getGlobalSettingsKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
 	const adapter = WebRtcAdapter.getInstance()
 
 	return RemoteStatus.create({

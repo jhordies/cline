@@ -14,11 +14,11 @@ export async function regenerateSharedKey(controller: Controller, _request: Empt
 	const newKey = crypto.randomBytes(32).toString("base64")
 	await state.setSecret("remoteBridgeSharedKey", newKey)
 
-	const instanceId = state.getGlobalStateKey("remoteBridgeInstanceId") ?? crypto.randomUUID()
-	const signalingUrl = state.getGlobalStateKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
+	const instanceId = state.getGlobalSettingsKey("remoteBridgeInstanceId") ?? crypto.randomUUID()
+	const signalingUrl = state.getGlobalSettingsKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
 
 	// Restart adapter with new key if currently enabled
-	const enabled = state.getGlobalStateKey("remoteBridgeEnabled") ?? false
+	const enabled = state.getGlobalSettingsKey("remoteBridgeEnabled") ?? false
 	if (enabled) {
 		await WebRtcAdapter.stop()
 		await WebRtcAdapter.start(instanceId, signalingUrl, newKey)
