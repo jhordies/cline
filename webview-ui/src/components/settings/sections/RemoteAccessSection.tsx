@@ -1,28 +1,12 @@
 import { VSCodeButton, VSCodeCheckbox, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import { useEffect, useState } from "react"
-import { EmptyRequest, BooleanRequest, StringRequest } from "@shared/proto/cline/common"
+import { BooleanRequest, EmptyRequest, StringRequest } from "@shared/proto/cline/common"
 import { useExtensionState } from "@/context/ExtensionStateContext"
+import { RemoteServiceClient } from "@/services/grpc-client"
 import Section from "../Section"
-
-// Lazy-load qrcode to avoid bundle issues if not installed yet
-let QRCode: any = null
-try {
-	QRCode = require("qrcode.react").QRCodeSVG
-} catch {
-	// qrcode.react not installed — show text fallback
-}
 
 interface RemoteAccessSectionProps {
 	renderSectionHeader: (tabId: string) => JSX.Element | null
-}
-
-// Dynamically import the RemoteServiceClient once protos are generated
-// For now we use a lazy import pattern so the file compiles even before protos run
-let RemoteServiceClient: any = null
-try {
-	RemoteServiceClient = require("@/services/grpc-client").RemoteServiceClient
-} catch {
-	// Generated client not yet available — protos need to be run
 }
 
 export const RemoteAccessSection = ({ renderSectionHeader }: RemoteAccessSectionProps) => {
@@ -156,24 +140,13 @@ export const RemoteAccessSection = ({ renderSectionHeader }: RemoteAccessSection
 						</div>
 
 						{showQr && pairingInfo && (
-							<div className="mb-4 p-4 bg-white rounded inline-block">
-								{QRCode ? (
-									<QRCode value={pairingInfo.qrPayload} size={200} />
-								) : (
-									<div>
-										<p className="text-xs text-description mb-2">
-											Install <code>qrcode.react</code> to show QR code, or copy the pairing string:
-										</p>
-										<textarea
-											readOnly
-											className="text-xs w-full h-20 bg-vscode-input-background p-2 rounded select-all"
-											value={pairingInfo.qrPayload}
-										/>
-									</div>
-								)}
-								<p className="text-xs text-description mt-2 text-center">
-									Scan with the Cline mobile app
-								</p>
+							<div className="mb-4">
+								<p className="text-xs text-description mb-1">Pairing string (scan with mobile app or copy):</p>
+								<textarea
+									readOnly
+									className="text-xs w-full h-20 bg-vscode-input-background p-2 rounded select-all font-mono"
+									value={pairingInfo.qrPayload}
+								/>
 							</div>
 						)}
 					</>
