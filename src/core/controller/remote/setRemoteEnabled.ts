@@ -47,7 +47,7 @@ export async function setRemoteEnabled(controller: Controller, request: BooleanR
 		enabled,
 		instanceId,
 		peerConnected: adapter?.isPeerConnected() ?? false,
-		connectedSinceTs: BigInt(adapter?.getConnectedSinceTs() ?? 0),
+		connectedSinceTs: adapter?.getConnectedSinceTs() ?? 0,
 		signalingUrl,
 	})
 }

@@ -28,7 +28,7 @@ export async function setSignalingUrl(controller: Controller, request: StringReq
 		enabled,
 		instanceId: state.getGlobalSettingsKey("remoteBridgeInstanceId") ?? "",
 		peerConnected: adapter?.isPeerConnected() ?? false,
-		connectedSinceTs: BigInt(adapter?.getConnectedSinceTs() ?? 0),
+		connectedSinceTs: adapter?.getConnectedSinceTs() ?? 0,
 		signalingUrl: newUrl,
 	})
 }

@@ -20,7 +20,7 @@ export async function getRemoteStatus(controller: Controller, _request: EmptyReq
 		enabled,
 		instanceId,
 		peerConnected,
-		connectedSinceTs: BigInt(connectedSinceTs),
+		connectedSinceTs: connectedSinceTs,
 		signalingUrl,
 	})
 }
