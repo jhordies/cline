@@ -1,5 +1,6 @@
 import { VSCodeButton, VSCodeCheckbox, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import { useEffect, useState } from "react"
+import QRCode from "qrcode"
 import { BooleanRequest, EmptyRequest, StringRequest } from "@shared/proto/cline/common"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { RemoteServiceClient } from "@/services/grpc-client"
@@ -14,6 +15,7 @@ export const RemoteAccessSection = ({ renderSectionHeader }: RemoteAccessSection
 		useExtensionState()
 
 	const [pairingInfo, setPairingInfo] = useState<{ qrPayload: string; sharedKey: string } | null>(null)
+	const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
 	const [showQr, setShowQr] = useState(false)
 	const [signalingUrlInput, setSignalingUrlInput] = useState(remoteBridgeSignalingUrl ?? "https://signal.cline.bot")
 	const [isLoading, setIsLoading] = useState(false)
@@ -35,12 +37,22 @@ export const RemoteAccessSection = ({ renderSectionHeader }: RemoteAccessSection
 		}
 	}
 
+	const generateQr = async (payload: string) => {
+		try {
+			const dataUrl = await QRCode.toDataURL(payload, { width: 200, margin: 2 })
+			setQrDataUrl(dataUrl)
+		} catch (e) {
+			setQrDataUrl(null)
+		}
+	}
+
 	const handleShowQr = async () => {
 		if (!RemoteServiceClient) return
 		setIsLoading(true)
 		try {
 			const info = await RemoteServiceClient.getPairingInfo(EmptyRequest.create())
 			setPairingInfo({ qrPayload: info.qrPayload, sharedKey: info.sharedKey })
+			await generateQr(info.qrPayload)
 			setShowQr(true)
 		} finally {
 			setIsLoading(false)
@@ -54,6 +66,7 @@ export const RemoteAccessSection = ({ renderSectionHeader }: RemoteAccessSection
 		try {
 			const info = await RemoteServiceClient.regenerateSharedKey(EmptyRequest.create())
 			setPairingInfo({ qrPayload: info.qrPayload, sharedKey: info.sharedKey })
+			await generateQr(info.qrPayload)
 			setShowQr(true)
 		} finally {
 			setIsLoading(false)
@@ -141,7 +154,20 @@ export const RemoteAccessSection = ({ renderSectionHeader }: RemoteAccessSection
 
 						{showQr && pairingInfo && (
 							<div className="mb-4">
-								<p className="text-xs text-description mb-1">Pairing string (scan with mobile app or copy):</p>
+								{qrDataUrl ? (
+									<div className="mb-2">
+										<img
+											src={qrDataUrl}
+											alt="Pairing QR code"
+											className="rounded"
+											style={{ imageRendering: "pixelated", width: 200, height: 200 }}
+										/>
+										<p className="text-xs text-description mt-1">Scan with the Cline mobile app</p>
+									</div>
+								) : (
+									<p className="text-xs text-description mb-2">QR code unavailable — copy the pairing string below</p>
+								)}
+								<p className="text-xs text-description mb-1">Pairing string (copy if QR scan fails):</p>
 								<textarea
 									readOnly
 									className="text-xs w-full h-20 bg-vscode-input-background p-2 rounded select-all font-mono"
