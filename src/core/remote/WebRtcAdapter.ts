@@ -127,6 +127,25 @@ export class WebRtcAdapter {
 				iceServers: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"],
 			})
 
+			// Handle local description (answer) — called when answer is ready
+			this._pc.onLocalDescription((sdp: string, type: string) => {
+				if (type !== "answer") return
+				Logger.log("[WebRtcAdapter] Answer SDP ready — posting to signaling server")
+				fetch(`${this._signalingUrl}/answer`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						instanceId: this._instanceId,
+						sdp,
+					}),
+				})
+					.then(() => Logger.log("[WebRtcAdapter] Answer posted successfully"))
+					.catch((err) => Logger.error("[WebRtcAdapter] Failed to post answer:", err))
+
+				// Start polling for ICE candidates from mobile
+				this._pollIceCandidates()
+			})
+
 			// Collect local ICE candidates and send to signaling server
 			this._pc.onLocalCandidate((candidate: string, mid: string) => {
 				if (this._stopped) return
@@ -158,35 +177,15 @@ export class WebRtcAdapter {
 					Logger.log("[WebRtcAdapter] Data channel closed")
 					this._isPeerConnected = false
 					this._connectedSinceTs = 0
-					// Re-register and wait for new connection
 					if (!this._stopped) {
 						this._scheduleReconnect()
 					}
 				})
 			})
 
-			// Set remote description (the offer from mobile)
+			// Set remote description — this triggers async answer generation via onLocalDescription
+			Logger.log("[WebRtcAdapter] Setting remote description (offer)")
 			this._pc.setRemoteDescription(offerSdp, "offer")
-
-			// Create and set local description (our answer)
-			const answer = this._pc.localDescription()
-			if (!answer) {
-				Logger.error("[WebRtcAdapter] Failed to create answer")
-				return
-			}
-
-			Logger.log("[WebRtcAdapter] Posting SDP answer to signaling server")
-			await fetch(`${this._signalingUrl}/answer`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					instanceId: this._instanceId,
-					sdp: answer.sdp,
-				}),
-			})
-
-			// Poll for ICE candidates from mobile
-			this._pollIceCandidates()
 		} catch (err) {
 			Logger.error("[WebRtcAdapter] Failed to handle offer:", err)
 			this._scheduleReconnect()
