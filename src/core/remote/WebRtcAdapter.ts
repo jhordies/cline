@@ -1,6 +1,6 @@
+import { Duplex } from "stream"
 import { fetch } from "@/shared/net"
 import { Logger } from "@/shared/services/Logger"
-import { Duplex } from "stream"
 
 /**
  * WebRtcAdapter manages the P2P WebRTC connection between cline-core and the mobile app.
@@ -101,6 +101,12 @@ export class WebRtcAdapter {
 					const data = (await res.json()) as { sdp?: string; error?: string }
 					if (data.sdp) {
 						Logger.log("[WebRtcAdapter] Received SDP offer from mobile — creating answer")
+						// Consume the offer so a future reconnect doesn't re-process it
+						await fetch(`${this._signalingUrl}/offer/consume`, {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ instanceId: this._instanceId }),
+						}).catch(() => {})
 						await this._handleOffer(data.sdp)
 						return // Stop polling — connection in progress
 					}
@@ -118,6 +124,16 @@ export class WebRtcAdapter {
 	}
 
 	private async _handleOffer(offerSdp: string): Promise<void> {
+		// Close any existing peer connection before creating a new one
+		if (this._pc) {
+			try {
+				this._pc.close()
+			} catch {
+				// Ignore
+			}
+			this._pc = null
+		}
+
 		try {
 			// Dynamically import node-datachannel to avoid load errors if not installed
 			const nodeDataChannel = await import("node-datachannel")
@@ -195,6 +211,8 @@ export class WebRtcAdapter {
 	private _pollIceCandidates(): void {
 		if (this._stopped || !this._pc) return
 
+		const seen = new Set<string>()
+
 		const poll = async () => {
 			if (this._stopped || this._isPeerConnected) return
 			try {
@@ -206,9 +224,10 @@ export class WebRtcAdapter {
 					if (data.candidates) {
 						for (const c of data.candidates) {
 							try {
-								// Server returns raw candidate strings
 								const candidateStr = typeof c === "string" ? c : (c as any).candidate
-								this._pc.addRemoteCandidate(candidateStr, "0")
+								if (seen.has(candidateStr)) continue
+								seen.add(candidateStr)
+								this._pc.addRemoteCandidate(candidateStr, c.mid || "0")
 							} catch {
 								// Ignore invalid candidates
 							}

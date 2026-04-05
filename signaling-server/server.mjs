@@ -73,19 +73,31 @@ function handleRequest(path, method, instanceId, data, res, req) {
 	if (path === "/register" && method === "POST") {
 		const id = data.instanceId || instanceId
 		if (!id) return json({ error: "instanceId required" }, 400)
-		sessions.set(id, { offer: null, answer: null, iceCandidates: [], registeredAt: Date.now() })
-		console.log(`[register] ${id}`)
+		const existing = sessions.get(id)
+		if (existing) {
+			// Refresh TTL but preserve any pending offer/ICE from mobile
+			existing.registeredAt = Date.now()
+			console.log(`[register] ${id} (refreshed, offer=${!!existing.offer})`)
+		} else {
+			sessions.set(id, { offer: null, answer: null, iceCandidates: [], registeredAt: Date.now() })
+			console.log(`[register] ${id} (new)`)
+		}
 		return json({ ok: true })
 	}
 
 	// POST /offer — mobile posts its SDP offer
 	if (path === "/offer" && method === "POST") {
 		const id = data.instanceId || instanceId
-		const session = sessions.get(id)
-		if (!session) return json({ error: "Session not found" }, 404)
+		if (!id) return json({ error: "instanceId required" }, 400)
+		let session = sessions.get(id)
+		if (!session) {
+			// Auto-create session so mobile can post offer before cline-core registers
+			session = { offer: null, answer: null, iceCandidates: [], registeredAt: Date.now() }
+			sessions.set(id, session)
+		}
 		session.offer = data.sdp
 		session.answer = null // reset answer when new offer arrives
-		session.iceCandidates = [] // reset on new offer
+		session.iceCandidates = [] // reset ICE on new offer
 		console.log(`[offer] ${id}`)
 		return json({ ok: true })
 	}
@@ -96,6 +108,16 @@ function handleRequest(path, method, instanceId, data, res, req) {
 		if (!session) return json({ error: "Session not found" }, 404)
 		if (!session.offer) return json({ error: "No offer yet" }, 404)
 		return json({ sdp: session.offer })
+	}
+
+	// POST /offer/consume — cline-core clears the offer after processing it
+	if (path === "/offer/consume" && method === "POST") {
+		const id = data.instanceId || instanceId
+		const session = sessions.get(id)
+		if (!session) return json({ error: "Session not found" }, 404)
+		session.offer = null
+		console.log(`[offer/consume] ${id}`)
+		return json({ ok: true })
 	}
 
 	// POST /answer — cline-core posts its SDP answer
