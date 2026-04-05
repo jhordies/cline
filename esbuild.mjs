@@ -194,7 +194,8 @@ const extensionConfig = {
 	...baseConfig,
 	entryPoints: ["src/extension.ts"],
 	outfile: `${destDir}/extension.js`,
-	external: ["vscode"],
+	// node-datachannel is a native module (.node binary) — cannot be bundled
+	external: ["vscode", "node-datachannel"],
 }
 
 // Standalone-specific configuration

@@ -58,6 +58,9 @@ old_docs/**
 !node_modules/@vscode/codicons/dist/codicon.css
 !node_modules/@vscode/codicons/dist/codicon.ttf
 
+# Include node-datachannel native binary for WebRTC remote bridge
+!node_modules/node-datachannel/**
+
 # Include default themes JSON files used in getTheme
 !src/integrations/theme/default-themes/**
 
