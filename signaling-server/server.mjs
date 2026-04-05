@@ -13,7 +13,6 @@
  */
 
 import { createServer } from "http"
-import { WebSocketServer } from "ws"
 
 const PORT = parseInt(process.env.PORT || "3000", 10)
 const TTL_MS = 60 * 60 * 1000 // 1 hour — sessions expire after this
