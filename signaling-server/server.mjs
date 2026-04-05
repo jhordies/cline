@@ -14,7 +14,7 @@
 
 import { createServer } from "http"
 
-const PORT = parseInt(process.env.PORT || "3000", 10)
+const PORT = Number.parseInt(process.env.PORT || "3000", 10)
 const TTL_MS = 60 * 60 * 1000 // 1 hour — sessions expire after this
 
 // In-memory session store
@@ -22,15 +22,18 @@ const TTL_MS = 60 * 60 * 1000 // 1 hour — sessions expire after this
 const sessions = new Map()
 
 // Cleanup expired sessions every 10 minutes
-setInterval(() => {
-	const now = Date.now()
-	for (const [id, session] of sessions) {
-		if (now - session.registeredAt > TTL_MS) {
-			sessions.delete(id)
-			console.log(`[cleanup] Expired session: ${id}`)
+setInterval(
+	() => {
+		const now = Date.now()
+		for (const [id, session] of sessions) {
+			if (now - session.registeredAt > TTL_MS) {
+				sessions.delete(id)
+				console.log(`[cleanup] Expired session: ${id}`)
+			}
 		}
-	}
-}, 10 * 60 * 1000)
+	},
+	10 * 60 * 1000,
+)
 
 const httpServer = createServer((req, res) => {
 	const url = new URL(req.url, `http://localhost:${PORT}`)
@@ -52,7 +55,7 @@ const httpServer = createServer((req, res) => {
 	req.on("end", () => {
 		try {
 			const data = body ? JSON.parse(body) : {}
-			handleRequest(url.pathname, req.method, instanceId, data, res)
+			handleRequest(url.pathname, req.method, instanceId, data, res, req)
 		} catch (e) {
 			res.writeHead(400, { "Content-Type": "application/json" })
 			res.end(JSON.stringify({ error: "Invalid JSON" }))
@@ -60,7 +63,7 @@ const httpServer = createServer((req, res) => {
 	})
 })
 
-function handleRequest(path, method, instanceId, data, res) {
+function handleRequest(path, method, instanceId, data, res, req) {
 	const json = (obj, status = 200) => {
 		res.writeHead(status, { "Content-Type": "application/json" })
 		res.end(JSON.stringify(obj))
@@ -75,18 +78,19 @@ function handleRequest(path, method, instanceId, data, res) {
 		return json({ ok: true })
 	}
 
-	// POST /offer — cline-core posts its SDP offer
+	// POST /offer — mobile posts its SDP offer
 	if (path === "/offer" && method === "POST") {
 		const id = data.instanceId || instanceId
 		const session = sessions.get(id)
 		if (!session) return json({ error: "Session not found" }, 404)
 		session.offer = data.sdp
+		session.answer = null // reset answer when new offer arrives
 		session.iceCandidates = [] // reset on new offer
 		console.log(`[offer] ${id}`)
 		return json({ ok: true })
 	}
 
-	// GET /offer — mobile fetches the SDP offer
+	// GET /offer — cline-core polls for the SDP offer
 	if (path === "/offer" && method === "GET") {
 		const session = sessions.get(instanceId)
 		if (!session) return json({ error: "Session not found" }, 404)
@@ -94,7 +98,7 @@ function handleRequest(path, method, instanceId, data, res) {
 		return json({ sdp: session.offer })
 	}
 
-	// POST /answer — mobile posts its SDP answer
+	// POST /answer — cline-core posts its SDP answer
 	if (path === "/answer" && method === "POST") {
 		const id = data.instanceId || instanceId
 		const session = sessions.get(id)
@@ -104,7 +108,7 @@ function handleRequest(path, method, instanceId, data, res) {
 		return json({ ok: true })
 	}
 
-	// GET /answer — cline-core fetches the SDP answer
+	// GET /answer — mobile polls for the SDP answer
 	if (path === "/answer" && method === "GET") {
 		const session = sessions.get(instanceId)
 		if (!session) return json({ error: "Session not found" }, 404)
