@@ -506,6 +506,7 @@
 		"typescript": "^5.4.5"
 	},
 	"dependencies": {
+		"node-datachannel": "^0.10.1",
 		"@anthropic-ai/sdk": "^0.37.0",
 		"@anthropic-ai/vertex-sdk": "^0.6.4",
 		"@aws-sdk/client-bedrock-runtime": "^3.922.0",

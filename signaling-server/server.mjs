@@ -118,7 +118,7 @@ function handleRequest(path, method, instanceId, data, res) {
 		const session = sessions.get(id)
 		if (!session) return json({ error: "Session not found" }, 404)
 		if (data.candidate) {
-			session.iceCandidates.push({ candidate: data.candidate, from: data.from || "unknown" })
+			session.iceCandidates.push({ candidate: data.candidate, mid: data.mid || "0", from: data.from || "unknown" })
 		}
 		return json({ ok: true })
 	}
@@ -129,7 +129,9 @@ function handleRequest(path, method, instanceId, data, res) {
 		if (!session) return json({ error: "Session not found" }, 404)
 		const from = new URL(`http://x${req.url}`).searchParams.get("from") || ""
 		// Return candidates NOT from the requester (i.e. from the other side)
-		const candidates = session.iceCandidates.filter((c) => c.from !== from).map((c) => c.candidate)
+		const candidates = session.iceCandidates
+			.filter((c) => c.from !== from)
+			.map((c) => ({ candidate: c.candidate, mid: c.mid || "0" }))
 		return json({ candidates })
 	}
 
