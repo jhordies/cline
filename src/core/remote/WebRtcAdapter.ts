@@ -1,21 +1,15 @@
+import { fetch } from "@/shared/net"
 import { Logger } from "@/shared/services/Logger"
 
 /**
  * WebRtcAdapter manages the P2P WebRTC connection between cline-core and the mobile app.
  *
- * Architecture:
- * - Connects to a signaling server to exchange SDP offer/answer and ICE candidates
- * - Once P2P is established, creates a data channel that acts as a TCP-like stream
- * - The gRPC server receives connections through this data channel transparently
+ * Phase 1 (implemented): Registers with the signaling server and polls for an offer.
+ * Phase 2 (TODO): Full WebRTC P2P via node-datachannel once that package is available.
  *
- * The actual WebRTC implementation requires the `node-datachannel` package
- * (pure Node.js, no Electron dependency). This stub provides the interface
- * and lifecycle management; the full implementation wires up the RTCPeerConnection.
- *
- * To complete the implementation:
- * 1. `npm install node-datachannel` in the extension package
- * 2. Replace the stub methods below with real RTCPeerConnection logic
- * 3. Use SignalingClient to exchange SDP/ICE with the signaling server
+ * To complete Phase 2:
+ * 1. npm install node-datachannel
+ * 2. Implement _handleOffer() with RTCPeerConnection logic
  */
 export class WebRtcAdapter {
 	private static instance: WebRtcAdapter | null = null
@@ -26,6 +20,7 @@ export class WebRtcAdapter {
 	private _signalingUrl: string
 	private _sharedKey: string
 	private _stopped = false
+	private _pollTimer: NodeJS.Timeout | null = null
 
 	private constructor(instanceId: string, signalingUrl: string, sharedKey: string) {
 		this._instanceId = instanceId
@@ -35,24 +30,17 @@ export class WebRtcAdapter {
 
 	// ─── Lifecycle ────────────────────────────────────────────────────────────
 
-	/**
-	 * Start the WebRTC adapter. Registers with the signaling server and
-	 * begins waiting for a mobile peer to connect.
-	 */
 	static async start(instanceId: string, signalingUrl: string, sharedKey: string): Promise<WebRtcAdapter> {
 		if (WebRtcAdapter.instance) {
 			await WebRtcAdapter.stop()
 		}
-
 		const adapter = new WebRtcAdapter(instanceId, signalingUrl, sharedKey)
 		WebRtcAdapter.instance = adapter
-		await adapter._connect()
+		// Non-blocking — don't await so extension startup isn't delayed
+		adapter._connect().catch((err) => Logger.error("[WebRtcAdapter] Connection error:", err))
 		return adapter
 	}
 
-	/**
-	 * Stop the adapter and close any active P2P connection.
-	 */
 	static async stop(): Promise<void> {
 		if (WebRtcAdapter.instance) {
 			await WebRtcAdapter.instance._disconnect()
@@ -60,9 +48,6 @@ export class WebRtcAdapter {
 		}
 	}
 
-	/**
-	 * Get the current adapter instance, if any.
-	 */
 	static getInstance(): WebRtcAdapter | null {
 		return WebRtcAdapter.instance
 	}
@@ -82,36 +67,65 @@ export class WebRtcAdapter {
 	private async _connect(): Promise<void> {
 		Logger.log(`[WebRtcAdapter] Starting — instanceId=${this._instanceId} signalingUrl=${this._signalingUrl}`)
 
-		// TODO: Full implementation steps:
-		//
-		// 1. POST to ${signalingUrl}/register with { instanceId, hmac }
-		//    where hmac = HMAC-SHA256(instanceId, sharedKey)
-		//
-		// 2. Poll ${signalingUrl}/offer?instanceId=... until a mobile peer
-		//    posts an SDP offer (or use WebSocket for push notification)
-		//
-		// 3. Create RTCPeerConnection (via node-datachannel):
-		//    const pc = new RTCPeerConnection({ iceServers: [...] })
-		//
-		// 4. Set remote description from the offer, create answer, set local description
-		//
-		// 5. POST answer to ${signalingUrl}/answer
-		//
-		// 6. Exchange ICE candidates via ${signalingUrl}/ice
-		//
-		// 7. On pc.ondatachannel — wrap the RTCDataChannel as a Node.js Duplex stream
-		//    and inject it into the ProtoBus gRPC server as a new connection:
-		//    protobusServer.emit('connection', dataChannelStream)
-		//
-		// 8. Update _isPeerConnected = true, _connectedSinceTs = Date.now()
-		//
-		// 9. On channel close — set _isPeerConnected = false, restart polling loop
+		// Step 1: Register with the signaling server
+		try {
+			const res = await fetch(`${this._signalingUrl}/register`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ instanceId: this._instanceId }),
+			})
+			if (!res.ok) {
+				Logger.error(`[WebRtcAdapter] Registration failed: ${res.status}`)
+				return
+			}
+			Logger.log("[WebRtcAdapter] Registered with signaling server — waiting for mobile peer")
+		} catch (err) {
+			Logger.error("[WebRtcAdapter] Failed to reach signaling server:", err)
+			// Retry after 30s
+			if (!this._stopped) {
+				this._pollTimer = setTimeout(() => this._connect(), 30_000)
+			}
+			return
+		}
 
-		Logger.log("[WebRtcAdapter] Stub: signaling registration not yet implemented")
+		// Step 2: Poll for an SDP offer from the mobile app
+		this._startPolling()
+	}
+
+	private _startPolling(): void {
+		if (this._stopped) return
+
+		const poll = async () => {
+			if (this._stopped) return
+			try {
+				const res = await fetch(`${this._signalingUrl}/offer?instanceId=${encodeURIComponent(this._instanceId)}`)
+				if (res.ok) {
+					const data = (await res.json()) as { sdp?: string }
+					if (data.sdp) {
+						Logger.log("[WebRtcAdapter] Received SDP offer from mobile — WebRTC P2P not yet implemented")
+						// TODO: Phase 2 — handle the offer with node-datachannel:
+						// await this._handleOffer(data.sdp)
+						// For now, just log that we received it
+					}
+				}
+			} catch {
+				// Signaling server unreachable — will retry
+			}
+			// Poll every 3 seconds
+			if (!this._stopped && !this._isPeerConnected) {
+				this._pollTimer = setTimeout(poll, 3_000)
+			}
+		}
+
+		poll()
 	}
 
 	private async _disconnect(): Promise<void> {
 		this._stopped = true
+		if (this._pollTimer) {
+			clearTimeout(this._pollTimer)
+			this._pollTimer = null
+		}
 		this._isPeerConnected = false
 		this._connectedSinceTs = 0
 		Logger.log("[WebRtcAdapter] Stopped")

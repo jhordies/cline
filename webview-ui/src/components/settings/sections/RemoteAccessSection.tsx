@@ -28,10 +28,11 @@ export const RemoteAccessSection = ({ renderSectionHeader }: RemoteAccessSection
 	}, [remoteBridgeSignalingUrl])
 
 	const handleToggleEnabled = async (enabled: boolean) => {
-		if (!RemoteServiceClient) return
 		setIsLoading(true)
 		try {
 			await RemoteServiceClient.setRemoteEnabled(BooleanRequest.create({ value: enabled }))
+		} catch (e) {
+			console.error("[RemoteAccess] setRemoteEnabled failed:", e)
 		} finally {
 			setIsLoading(false)
 		}
