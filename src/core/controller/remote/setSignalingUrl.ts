@@ -1,7 +1,7 @@
 import { StringRequest } from "@shared/proto/cline/common"
 import { RemoteStatus } from "@shared/proto/cline/remote"
-import { Controller } from ".."
 import { WebRtcAdapter } from "../../remote/WebRtcAdapter"
+import { Controller } from ".."
 
 /**
  * Updates the signaling server URL.
@@ -18,7 +18,7 @@ export async function setSignalingUrl(controller: Controller, request: StringReq
 		const instanceId = state.getGlobalSettingsKey("remoteBridgeInstanceId") ?? ""
 		const sharedKey = (await state.getSecretKey("remoteBridgeSharedKey")) ?? ""
 		await WebRtcAdapter.stop()
-		await WebRtcAdapter.start(instanceId, newUrl, sharedKey)
+		await WebRtcAdapter.start(instanceId, newUrl, sharedKey, controller)
 	}
 
 	await controller.postStateToWebview()

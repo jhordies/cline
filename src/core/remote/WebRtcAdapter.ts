@@ -1,6 +1,9 @@
-import { Duplex } from "stream"
+import type { Controller } from "@/core/controller"
+import { handleGrpcRequest, handleGrpcRequestCancel } from "@/core/controller/grpc-handler"
+import type { ExtensionMessage } from "@/shared/ExtensionMessage"
 import { fetch } from "@/shared/net"
 import { Logger } from "@/shared/services/Logger"
+import type { WebviewMessage } from "@/shared/WebviewMessage"
 
 /**
  * WebRtcAdapter manages the P2P WebRTC connection between cline-core and the mobile app.
@@ -11,7 +14,7 @@ import { Logger } from "@/shared/services/Logger"
  * 3. Create RTCPeerConnection, set remote description, create answer
  * 4. Post answer to signaling server
  * 5. Exchange ICE candidates
- * 6. On data channel open — pipe to ProtoBus gRPC server
+ * 6. On data channel open — bridge JSON gRPC messages to handleGrpcRequest
  */
 export class WebRtcAdapter {
 	private static instance: WebRtcAdapter | null = null
@@ -24,6 +27,7 @@ export class WebRtcAdapter {
 	private _stopped = false
 	private _pollTimer: NodeJS.Timeout | null = null
 	private _pc: any = null // RTCPeerConnection from node-datachannel
+	private _controller: Controller | null = null
 
 	private constructor(instanceId: string, signalingUrl: string, sharedKey: string) {
 		this._instanceId = instanceId
@@ -33,11 +37,17 @@ export class WebRtcAdapter {
 
 	// ─── Lifecycle ────────────────────────────────────────────────────────────
 
-	static async start(instanceId: string, signalingUrl: string, sharedKey: string): Promise<WebRtcAdapter> {
+	static async start(
+		instanceId: string,
+		signalingUrl: string,
+		sharedKey: string,
+		controller?: Controller,
+	): Promise<WebRtcAdapter> {
 		if (WebRtcAdapter.instance) {
 			await WebRtcAdapter.stop()
 		}
 		const adapter = new WebRtcAdapter(instanceId, signalingUrl, sharedKey)
+		adapter._controller = controller ?? null
 		WebRtcAdapter.instance = adapter
 		adapter._connect().catch((err) => Logger.error("[WebRtcAdapter] Connection error:", err))
 		return adapter
@@ -52,6 +62,10 @@ export class WebRtcAdapter {
 
 	static getInstance(): WebRtcAdapter | null {
 		return WebRtcAdapter.instance
+	}
+
+	setController(controller: Controller): void {
+		this._controller = controller
 	}
 
 	isPeerConnected(): boolean {
@@ -186,7 +200,7 @@ export class WebRtcAdapter {
 					Logger.log("[WebRtcAdapter] Data channel open — P2P connection established!")
 					this._isPeerConnected = true
 					this._connectedSinceTs = Date.now()
-					this._pipeDataChannelToGrpc(dc)
+					this._bridgeDataChannel(dc)
 				})
 
 				dc.onClosed(() => {
@@ -245,45 +259,55 @@ export class WebRtcAdapter {
 		poll()
 	}
 
-	private _pipeDataChannelToGrpc(dc: any): void {
-		// Create a Node.js Duplex stream from the WebRTC data channel
-		// This allows the ProtoBus gRPC server to use it as a TCP-like connection
-		const stream = new Duplex({
-			read() {},
-			write(chunk, _encoding, callback) {
-				try {
-					dc.sendMessageBinary(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-					callback()
-				} catch (err) {
-					callback(err as Error)
-				}
-			},
-		})
-
-		dc.onMessage((msg: Buffer | string) => {
-			const buf = Buffer.isBuffer(msg) ? msg : Buffer.from(msg)
-			stream.push(buf)
-		})
-
-		dc.onClosed(() => {
-			stream.push(null)
-			stream.destroy()
-		})
-
-		// Inject the stream into the ProtoBus gRPC server
-		// The server treats it as a new TCP connection
-		try {
-			const { getProtobusServer } = require("../../standalone/protobus-service")
-			const server = getProtobusServer()
-			if (server) {
-				server.emit("connection", stream)
-				Logger.log("[WebRtcAdapter] Stream injected into ProtoBus gRPC server")
-			} else {
-				Logger.error("[WebRtcAdapter] ProtoBus server not available")
+	/**
+	 * Bridges the WebRTC data channel to the gRPC handler.
+	 *
+	 * The VSCode extension doesn't use a TCP gRPC server — it handles gRPC calls
+	 * via handleGrpcRequest() directly. The mobile app sends WebviewMessage JSON
+	 * over the data channel, and we route them through the same handler, sending
+	 * ExtensionMessage JSON responses back over the channel.
+	 */
+	private _bridgeDataChannel(dc: any): void {
+		const send = (msg: ExtensionMessage) => {
+			try {
+				dc.sendMessage(JSON.stringify(msg))
+			} catch (err) {
+				Logger.error("[WebRtcAdapter] Failed to send message over data channel:", err)
 			}
-		} catch (err) {
-			Logger.error("[WebRtcAdapter] Failed to inject stream into gRPC server:", err)
 		}
+
+		const postMessageToWebview = (msg: ExtensionMessage): Promise<boolean> => {
+			send(msg)
+			return Promise.resolve(true)
+		}
+
+		dc.onMessage((raw: Buffer | string) => {
+			try {
+				const text = typeof raw === "string" ? raw : raw.toString("utf8")
+				const message = JSON.parse(text) as WebviewMessage
+
+				if (!this._controller) {
+					Logger.error("[WebRtcAdapter] No controller available to handle message")
+					return
+				}
+
+				if (message.type === "grpc_request" && message.grpc_request) {
+					handleGrpcRequest(this._controller, postMessageToWebview, message.grpc_request).catch((err) =>
+						Logger.error("[WebRtcAdapter] gRPC request error:", err),
+					)
+				} else if (message.type === "grpc_request_cancel" && message.grpc_request_cancel) {
+					handleGrpcRequestCancel(postMessageToWebview, message.grpc_request_cancel).catch((err) =>
+						Logger.error("[WebRtcAdapter] gRPC cancel error:", err),
+					)
+				} else {
+					Logger.warn("[WebRtcAdapter] Unknown message type:", message.type)
+				}
+			} catch (err) {
+				Logger.error("[WebRtcAdapter] Failed to parse message:", err)
+			}
+		})
+
+		Logger.log("[WebRtcAdapter] Data channel bridged to gRPC handler")
 	}
 
 	private _scheduleReconnect(): void {

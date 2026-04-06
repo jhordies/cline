@@ -1,8 +1,8 @@
-import crypto from "crypto"
 import { BooleanRequest } from "@shared/proto/cline/common"
 import { RemoteStatus } from "@shared/proto/cline/remote"
-import { Controller } from ".."
+import crypto from "crypto"
 import { WebRtcAdapter } from "../../remote/WebRtcAdapter"
+import { Controller } from ".."
 
 /**
  * Enables or disables the remote mobile bridge.
@@ -30,7 +30,7 @@ export async function setRemoteEnabled(controller: Controller, request: BooleanR
 		// Start the WebRTC adapter
 		const signalingUrl = state.getGlobalSettingsKey("remoteBridgeSignalingUrl") ?? "https://signal.cline.bot"
 		const sharedKey = (await state.getSecretKey("remoteBridgeSharedKey"))!
-		await WebRtcAdapter.start(instanceId, signalingUrl, sharedKey)
+		await WebRtcAdapter.start(instanceId, signalingUrl, sharedKey, controller)
 	} else {
 		// Stop the adapter
 		await WebRtcAdapter.stop()

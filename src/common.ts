@@ -1,6 +1,5 @@
 import { WebviewProvider } from "./core/webview"
 import "./utils/path" // necessary to have access to String.prototype.toPosix
-import { WebRtcAdapter } from "./core/remote/WebRtcAdapter"
 
 import { HostProvider } from "@/hosts/host-provider"
 import { Logger } from "@/shared/services/Logger"
@@ -9,6 +8,7 @@ import { FileContextTracker } from "./core/context/context-tracking/FileContextT
 import { clearOnboardingModelsCache } from "./core/controller/models/getClineOnboardingModels"
 import { HookDiscoveryCache } from "./core/hooks/HookDiscoveryCache"
 import { HookProcessRegistry } from "./core/hooks/HookProcessRegistry"
+import { WebRtcAdapter } from "./core/remote/WebRtcAdapter"
 import { StateManager } from "./core/storage/StateManager"
 import { AgentConfigLoader } from "./core/task/tools/subagent/AgentConfigLoader"
 import { ExtensionRegistryInfo } from "./registry"
@@ -82,14 +82,14 @@ export async function initialize(storageContext: StorageContext): Promise<Webvie
 
 	// =============== Remote mobile bridge ===============
 	// Start WebRTC adapter if remote access was previously enabled
-	startRemoteBridgeIfEnabled(stateManager).catch((err) =>
+	startRemoteBridgeIfEnabled(stateManager, webview.controller).catch((err) =>
 		Logger.error("[Cline] Failed to start remote bridge:", err),
 	)
 
 	return webview
 }
 
-async function startRemoteBridgeIfEnabled(stateManager: StateManager): Promise<void> {
+async function startRemoteBridgeIfEnabled(stateManager: StateManager, controller: any): Promise<void> {
 	const enabled = stateManager.getGlobalSettingsKey("remoteBridgeEnabled")
 	if (!enabled) return
 
@@ -103,7 +103,7 @@ async function startRemoteBridgeIfEnabled(stateManager: StateManager): Promise<v
 	}
 
 	Logger.log(`[Cline] Starting remote bridge for instance ${instanceId}`)
-	await WebRtcAdapter.start(instanceId, signalingUrl, sharedKey)
+	await WebRtcAdapter.start(instanceId, signalingUrl, sharedKey, controller)
 }
 
 async function showVersionUpdateAnnouncement(stateManager: StateManager) {

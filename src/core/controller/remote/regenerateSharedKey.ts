@@ -1,8 +1,8 @@
-import crypto from "crypto"
 import { EmptyRequest } from "@shared/proto/cline/common"
 import { PairingInfo } from "@shared/proto/cline/remote"
-import { Controller } from ".."
+import crypto from "crypto"
 import { WebRtcAdapter } from "../../remote/WebRtcAdapter"
+import { Controller } from ".."
 
 /**
  * Regenerates the shared key, invalidating any existing mobile pairings.
@@ -21,7 +21,7 @@ export async function regenerateSharedKey(controller: Controller, _request: Empt
 	const enabled = state.getGlobalSettingsKey("remoteBridgeEnabled") ?? false
 	if (enabled) {
 		await WebRtcAdapter.stop()
-		await WebRtcAdapter.start(instanceId, signalingUrl, newKey)
+		await WebRtcAdapter.start(instanceId, signalingUrl, newKey, controller)
 	}
 
 	const qrPayload = JSON.stringify({
