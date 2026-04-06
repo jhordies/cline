@@ -138,6 +138,20 @@ export class WebRtcAdapter {
 		poll()
 	}
 
+	private async _fetchTurnServers(): Promise<any[]> {
+		try {
+			const res = await fetch(`${this._signalingUrl}/turn-credentials`)
+			if (!res.ok) return []
+			const data = (await res.json()) as { urls?: string[]; username?: string; credential?: string }
+			if (!data.urls?.length) return []
+			Logger.log(`[WebRtcAdapter] Fetched TURN credentials (expires in ${(data as any).ttl ?? "?"}s)`)
+			return [{ urls: data.urls, username: data.username, credential: data.credential }]
+		} catch {
+			Logger.warn("[WebRtcAdapter] Could not fetch TURN credentials — falling back to STUN only")
+			return []
+		}
+	}
+
 	private async _handleOffer(offerSdp: string): Promise<void> {
 		// Close any existing peer connection before creating a new one
 		if (this._pc) {
@@ -154,8 +168,12 @@ export class WebRtcAdapter {
 			const nodeDataChannel = await import("node-datachannel")
 			const { PeerConnection } = nodeDataChannel
 
+			const turnServers = await this._fetchTurnServers()
+			const iceServers: any[] = ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302", ...turnServers]
+			Logger.log(`[WebRtcAdapter] ICE servers: STUN x2 + TURN x${turnServers.length}`)
+
 			this._pc = new PeerConnection("cline-remote", {
-				iceServers: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"],
+				iceServers,
 			})
 
 			// Handle local description (answer) — called when answer is ready

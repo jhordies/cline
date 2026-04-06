@@ -1,24 +1,94 @@
 /**
- * Cline Remote Bridge — WebRTC Signaling Server
+ * Cline Remote Bridge — WebRTC Signaling + TURN Server
  *
  * Exchanges SDP offers/answers and ICE candidates between
  * the VSCode extension (cline-core) and the mobile app.
  *
+ * Also runs an embedded TURN server so peers can connect
+ * across different networks (not just LAN).
+ *
  * This server never sees any Cline messages — it only routes
- * the ~2KB WebRTC handshake data needed to establish a P2P connection.
+ * the ~2KB WebRTC handshake data needed to establish a P2P connection,
+ * and relays encrypted WebRTC media/data when direct P2P fails.
  *
  * Usage:
  *   node server.mjs
- *   PORT=3000 node server.mjs
+ *   PORT=3000 TURN_PORT=3478 TURN_SECRET=mysecret node server.mjs
+ *
+ * Environment variables:
+ *   PORT          HTTP signaling port (default: 3000)
+ *   TURN_PORT     TURN server UDP/TCP port (default: 3478)
+ *   TURN_SECRET   Shared secret for HMAC credential generation (default: random)
+ *   TURN_REALM    TURN realm (default: cline.bot)
+ *   PUBLIC_IP     Public IP for TURN relay (auto-detected if not set)
  */
 
+import { createHmac, randomBytes } from "crypto"
 import { createServer } from "http"
+import { createRequire } from "module"
+
+const require = createRequire(import.meta.url)
 
 const PORT = Number.parseInt(process.env.PORT || "3000", 10)
+const TURN_PORT = Number.parseInt(process.env.TURN_PORT || "3478", 10)
+const TURN_REALM = process.env.TURN_REALM || "cline.bot"
+// Secret used to generate short-lived TURN credentials (HMAC-SHA1 per RFC 8489)
+const TURN_SECRET = process.env.TURN_SECRET || randomBytes(32).toString("hex")
+const TURN_CREDENTIAL_TTL = 24 * 60 * 60 // 24 hours in seconds
 const TTL_MS = 60 * 60 * 1000 // 1 hour — sessions expire after this
 
-// In-memory session store
-// { instanceId -> { offer, answer, iceCandidates[], registeredAt, ws? } }
+if (!process.env.TURN_SECRET) {
+	console.log(`[turn] No TURN_SECRET set — generated ephemeral secret (restarts will invalidate credentials)`)
+}
+
+// ─── TURN Server ─────────────────────────────────────────────────────────────
+
+const turnServerHost = process.env.PUBLIC_IP || null
+
+// Start TURN server
+const Turn = require("node-turn")
+const turnServer = new Turn({
+	listeningPort: TURN_PORT,
+	authMech: "long-term",
+	credentials: {}, // We'll validate dynamically via the credential check below
+	realm: TURN_REALM,
+	debugLevel: "ERROR",
+})
+
+// Override credential check to use HMAC-based time-limited credentials
+// Username format: "<expiry-unix-timestamp>"
+// Password: base64(HMAC-SHA1(secret, username))
+turnServer.checkCredentials = (username, password) => {
+	try {
+		const expiry = Number.parseInt(username, 10)
+		if (Number.isNaN(expiry) || Date.now() / 1000 > expiry) {
+			return false // expired
+		}
+		const expected = createHmac("sha1", TURN_SECRET).update(username).digest("base64")
+		return expected === password
+	} catch {
+		return false
+	}
+}
+
+turnServer.start()
+console.log(`[turn] TURN server listening on port ${TURN_PORT} (realm: ${TURN_REALM})`)
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Generate short-lived TURN credentials using HMAC-SHA1.
+ * Compatible with the standard time-limited credential mechanism.
+ */
+function generateTurnCredentials() {
+	const expiry = Math.floor(Date.now() / 1000) + TURN_CREDENTIAL_TTL
+	const username = String(expiry)
+	const password = createHmac("sha1", TURN_SECRET).update(username).digest("base64")
+	return { username, password, ttl: TURN_CREDENTIAL_TTL }
+}
+
+// ─── In-memory session store ──────────────────────────────────────────────────
+// { instanceId -> { offer, answer, iceCandidates[], registeredAt } }
 const sessions = new Map()
 
 // Cleanup expired sessions every 10 minutes
@@ -34,6 +104,8 @@ setInterval(
 	},
 	10 * 60 * 1000,
 )
+
+// ─── HTTP Signaling Server ────────────────────────────────────────────────────
 
 const httpServer = createServer((req, res) => {
 	const url = new URL(req.url, `http://localhost:${PORT}`)
@@ -67,6 +139,19 @@ function handleRequest(path, method, instanceId, data, res, req) {
 	const json = (obj, status = 200) => {
 		res.writeHead(status, { "Content-Type": "application/json" })
 		res.end(JSON.stringify(obj))
+	}
+
+	// GET /turn-credentials — returns short-lived TURN credentials
+	// Both cline-core and the mobile app call this before initiating WebRTC
+	if (path === "/turn-credentials" && method === "GET") {
+		const creds = generateTurnCredentials()
+		const host = turnServerHost || req.headers.host?.split(":")[0] || "localhost"
+		return json({
+			urls: [`turn:${host}:${TURN_PORT}`, `turn:${host}:${TURN_PORT}?transport=tcp`],
+			username: creds.username,
+			credential: creds.password,
+			ttl: creds.ttl,
+		})
 	}
 
 	// POST /register — cline-core registers its instanceId
@@ -163,7 +248,7 @@ function handleRequest(path, method, instanceId, data, res, req) {
 
 	// GET /health
 	if (path === "/health") {
-		return json({ ok: true, sessions: sessions.size })
+		return json({ ok: true, sessions: sessions.size, turnPort: TURN_PORT })
 	}
 
 	json({ error: "Not found" }, 404)
@@ -172,4 +257,5 @@ function handleRequest(path, method, instanceId, data, res, req) {
 httpServer.listen(PORT, () => {
 	console.log(`Cline signaling server running on port ${PORT}`)
 	console.log(`Health check: http://localhost:${PORT}/health`)
+	console.log(`TURN credentials: http://localhost:${PORT}/turn-credentials`)
 })

@@ -1,10 +1,12 @@
 {
-  "name": "cline-signaling-server",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "server.mjs",
-  "scripts": {
-    "start": "node server.mjs"
-  },
-  "dependencies": {}
+	"name": "cline-signaling-server",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "server.mjs",
+	"scripts": {
+		"start": "node server.mjs"
+	},
+	"dependencies": {
+		"node-turn": "^0.0.6"
+	}
 }
