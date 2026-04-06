@@ -42,6 +42,7 @@ import { Session } from "@/shared/services/Session"
 import { getLatestAnnouncementId } from "@/utils/announcements"
 import { getCwd, getDesktopDir } from "@/utils/path"
 import { PromptRegistry } from "../prompts/system-prompt"
+import { WebRtcAdapter } from "../remote/WebRtcAdapter"
 import {
 	ensureCacheDirectoryExists,
 	ensureMcpServersDirectoryExists,
@@ -59,7 +60,6 @@ import { appendClineStealthModels } from "./models/refreshOpenRouterModels"
 import { checkCliInstallation } from "./state/checkCliInstallation"
 import { sendStateUpdate } from "./state/subscribeToState"
 import { sendChatButtonClickedEvent } from "./ui/subscribeToChatButtonClicked"
-import { WebRtcAdapter } from "../remote/WebRtcAdapter"
 
 /*
 https://github.com/microsoft/vscode-webview-ui-toolkit-samples/blob/main/default/weather-webview/src/providers/WeatherViewProvider.ts
@@ -901,6 +901,7 @@ export class Controller {
 		// Spread to create new array reference - React needs this to detect changes in useEffect dependencies
 		const clineMessages = [...(this.task?.messageStateHandler.getClineMessages() || [])]
 		const checkpointManagerErrorMessage = this.task?.taskState.checkpointManagerErrorMessage
+		const isStreaming = (this.task?.taskState.isStreaming || this.task?.taskState.isWaitingForFirstChunk) ?? false
 
 		const processedTaskHistory = (taskHistory || [])
 			.filter((item) => item.ts && item.task)
@@ -971,6 +972,7 @@ export class Controller {
 			taskHistory: processedTaskHistory,
 			shouldShowAnnouncement,
 			favoritedModelIds,
+			isStreaming,
 			backgroundCommandRunning: this.backgroundCommandRunning,
 			backgroundCommandTaskId: this.backgroundCommandTaskId,
 			// NEW: Add workspace information
@@ -1001,7 +1003,7 @@ export class Controller {
 			optOutOfRemoteConfig: this.stateManager.getGlobalSettingsKey("optOutOfRemoteConfig"),
 			doubleCheckCompletionEnabled,
 			lazyTeammateModeEnabled,
-				showFeatureTips,
+			showFeatureTips,
 			banners,
 			welcomeBanners,
 			openAiCodexIsAuthenticated,

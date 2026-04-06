@@ -116,11 +116,7 @@ async function handleStreamingRequest(
 	request: GrpcRequest,
 ): Promise<void> {
 	// Create a response stream function
-	const responseStream: StreamingResponseHandler<any> = async (
-		response: any,
-		isLast: boolean = false,
-		sequenceNumber?: number,
-	) => {
+	const responseStream: StreamingResponseHandler<any> = async (response: any, isLast = false, sequenceNumber?: number) => {
 		await postMessageToWebview({
 			type: "grpc_response",
 			grpc_response: {
@@ -190,8 +186,10 @@ export function getRequestRegistry(): GrpcRequestRegistry {
 }
 
 function getHandler(serviceName: string, methodName: string): any {
+	// Normalize service name — accept both "StateService" and "cline.StateService"
+	const normalizedName = serviceName.includes(".") ? serviceName : `cline.${serviceName}`
 	// Get the service handler from the config
-	const serviceConfig = serviceHandlers[serviceName]
+	const serviceConfig = serviceHandlers[normalizedName]
 	if (!serviceConfig) {
 		throw new Error(`Unknown service: ${serviceName}`)
 	}

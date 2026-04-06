@@ -266,6 +266,17 @@
 		},
 		{
 			"type": "npm",
+			"script": "package:local",
+			"group": "build",
+			"problemMatcher": [],
+			"isBackground": false,
+			"label": "npm: package:local",
+			"presentation": {
+				"reveal": "always"
+			}
+		},
+		{
+			"type": "npm",
 			"script": "storybook",
 			"group": "build",
 			"problemMatcher": [],

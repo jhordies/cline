@@ -180,6 +180,19 @@
 			"internalConsoleOptions": "openOnSessionStart"
 		},
 		{
+			"name": "Package VSIX (local)",
+			"type": "node",
+			"request": "launch",
+			"runtimeExecutable": "npm",
+			"runtimeArgs": [
+				"run",
+				"package:local"
+			],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"internalConsoleOptions": "neverOpen"
+		},
+		{
 			"name": "Open Storybook",
 			"type": "node",
 			"request": "launch",

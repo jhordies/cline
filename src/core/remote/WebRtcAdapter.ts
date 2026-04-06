@@ -1,5 +1,5 @@
 import type { Controller } from "@/core/controller"
-import { handleGrpcRequest, handleGrpcRequestCancel } from "@/core/controller/grpc-handler"
+import { getRequestRegistry, handleGrpcRequest, handleGrpcRequestCancel } from "@/core/controller/grpc-handler"
 import type { ExtensionMessage } from "@/shared/ExtensionMessage"
 import { fetch } from "@/shared/net"
 import { Logger } from "@/shared/services/Logger"
@@ -28,6 +28,7 @@ export class WebRtcAdapter {
 	private _pollTimer: NodeJS.Timeout | null = null
 	private _pc: any = null // RTCPeerConnection from node-datachannel
 	private _controller: Controller | null = null
+	private _handshakeTimer: NodeJS.Timeout | null = null
 
 	private constructor(instanceId: string, signalingUrl: string, sharedKey: string) {
 		this._instanceId = instanceId
@@ -191,6 +192,19 @@ export class WebRtcAdapter {
 				}).catch(() => {})
 			})
 
+			// Detect ICE/connection failures so we can reconnect even if the data
+			// channel never opens (e.g. ICE timeout, network change mid-handshake).
+			this._pc.onStateChange((state: string) => {
+				Logger.log(`[WebRtcAdapter] PeerConnection state: ${state}`)
+				if (state === "failed" || state === "closed" || state === "disconnected") {
+					this._clearHandshakeTimer()
+					if (!this._isPeerConnected && !this._stopped) {
+						Logger.warn(`[WebRtcAdapter] PeerConnection entered "${state}" before data channel opened — reconnecting`)
+						this._scheduleReconnect()
+					}
+				}
+			})
+
 			// Handle incoming data channel from mobile (mobile is the offerer, creates the channel)
 			this._pc.onDataChannel((dc: any) => {
 				Logger.log(`[WebRtcAdapter] Data channel received: ${dc.getLabel()}`)
@@ -198,24 +212,21 @@ export class WebRtcAdapter {
 
 				dc.onOpen(() => {
 					Logger.log("[WebRtcAdapter] Data channel open — P2P connection established!")
+					this._clearHandshakeTimer()
 					this._isPeerConnected = true
 					this._connectedSinceTs = Date.now()
+					// _bridgeDataChannel registers its own onClosed that handles both
+					// subscription cleanup and reconnect scheduling.
 					this._bridgeDataChannel(dc)
-				})
-
-				dc.onClosed(() => {
-					Logger.log("[WebRtcAdapter] Data channel closed")
-					this._isPeerConnected = false
-					this._connectedSinceTs = 0
-					if (!this._stopped) {
-						this._scheduleReconnect()
-					}
 				})
 			})
 
 			// Set remote description — this triggers async answer generation via onLocalDescription
 			Logger.log("[WebRtcAdapter] Setting remote description (offer)")
 			this._pc.setRemoteDescription(offerSdp, "offer")
+
+			// Safety net: if the data channel never opens within 30s, give up and retry
+			this._startHandshakeTimer()
 		} catch (err) {
 			Logger.error("[WebRtcAdapter] Failed to handle offer:", err)
 			this._scheduleReconnect()
@@ -268,9 +279,18 @@ export class WebRtcAdapter {
 	 * ExtensionMessage JSON responses back over the channel.
 	 */
 	private _bridgeDataChannel(dc: any): void {
+		// Track all streaming request IDs registered through this connection so we
+		// can cancel them (cleaning up subscriptions in activeStateSubscriptions,
+		// activePartialMessageSubscriptions, etc.) when the channel closes.
+		// Without this, stale responseStream closures pointing at the dead data
+		// channel linger in the subscription sets and swallow all future updates.
+		const connectionRequestIds = new Set<string>()
+
 		const send = (msg: ExtensionMessage) => {
 			try {
-				dc.sendMessage(JSON.stringify(msg))
+				const json = JSON.stringify(msg)
+				Logger.log(`[WebRtcAdapter] → sending ${json.length}b: type=${(msg as any).type ?? "unknown"}`)
+				dc.sendMessage(json)
 			} catch (err) {
 				Logger.error("[WebRtcAdapter] Failed to send message over data channel:", err)
 			}
@@ -284,6 +304,7 @@ export class WebRtcAdapter {
 		dc.onMessage((raw: Buffer | string) => {
 			try {
 				const text = typeof raw === "string" ? raw : raw.toString("utf8")
+				Logger.log(`[WebRtcAdapter] ← received ${text.length}b: ${text.substring(0, 120)}`)
 				const message = JSON.parse(text) as WebviewMessage
 
 				if (!this._controller) {
@@ -292,32 +313,87 @@ export class WebRtcAdapter {
 				}
 
 				if (message.type === "grpc_request" && message.grpc_request) {
-					handleGrpcRequest(this._controller, postMessageToWebview, message.grpc_request).catch((err) =>
+					const req = message.grpc_request
+					Logger.log(`[WebRtcAdapter] dispatching gRPC: ${req.service}/${req.method} streaming=${req.is_streaming}`)
+					// Track streaming requests so we can cancel them on disconnect
+					if (req.is_streaming && req.request_id) {
+						connectionRequestIds.add(req.request_id)
+					}
+					handleGrpcRequest(this._controller, postMessageToWebview, req).catch((err) =>
 						Logger.error("[WebRtcAdapter] gRPC request error:", err),
 					)
 				} else if (message.type === "grpc_request_cancel" && message.grpc_request_cancel) {
+					connectionRequestIds.delete(message.grpc_request_cancel.request_id)
 					handleGrpcRequestCancel(postMessageToWebview, message.grpc_request_cancel).catch((err) =>
 						Logger.error("[WebRtcAdapter] gRPC cancel error:", err),
 					)
 				} else {
-					Logger.warn("[WebRtcAdapter] Unknown message type:", message.type)
+					Logger.warn(
+						`[WebRtcAdapter] Unknown message type: "${message.type}" — full message: ${text.substring(0, 200)}`,
+					)
 				}
 			} catch (err) {
 				Logger.error("[WebRtcAdapter] Failed to parse message:", err)
 			}
 		})
 
+		dc.onClosed(() => {
+			Logger.log("[WebRtcAdapter] Data channel closed")
+			this._isPeerConnected = false
+			this._connectedSinceTs = 0
+
+			// Cancel all streaming subscriptions from this connection so their
+			// responseStream closures are removed from the subscription sets.
+			// This prevents state/partial-message updates from being sent to the
+			// dead channel and silently dropped after a reconnect.
+			if (connectionRequestIds.size > 0) {
+				Logger.log(`[WebRtcAdapter] Cleaning up ${connectionRequestIds.size} streaming subscription(s) on channel close`)
+				const registry = getRequestRegistry()
+				for (const requestId of connectionRequestIds) {
+					registry.cancelRequest(requestId)
+				}
+				connectionRequestIds.clear()
+			}
+
+			if (!this._stopped) {
+				this._scheduleReconnect()
+			}
+		})
+
 		Logger.log("[WebRtcAdapter] Data channel bridged to gRPC handler")
+	}
+
+	private _startHandshakeTimer(): void {
+		this._clearHandshakeTimer()
+		this._handshakeTimer = setTimeout(() => {
+			if (!this._isPeerConnected && !this._stopped) {
+				Logger.warn("[WebRtcAdapter] Handshake timed out — reconnecting")
+				this._scheduleReconnect()
+			}
+		}, 30_000)
+	}
+
+	private _clearHandshakeTimer(): void {
+		if (this._handshakeTimer) {
+			clearTimeout(this._handshakeTimer)
+			this._handshakeTimer = null
+		}
 	}
 
 	private _scheduleReconnect(): void {
 		if (this._stopped) return
-		Logger.log("[WebRtcAdapter] Reconnecting in 30s...")
-		this._pollTimer = setTimeout(() => this._connect(), 30_000)
+		// Clear any existing poll or reconnect timer before scheduling a new one
+		if (this._pollTimer) {
+			clearTimeout(this._pollTimer)
+			this._pollTimer = null
+		}
+		Logger.log("[WebRtcAdapter] Reconnecting in 5s...")
+		this._pollTimer = setTimeout(() => this._connect(), 5_000)
 	}
 
 	private async _disconnect(): Promise<void> {
 		this._stopped = true
+		this._clearHandshakeTimer()
 		if (this._pollTimer) {
 			clearTimeout(this._pollTimer)
 			this._pollTimer = null

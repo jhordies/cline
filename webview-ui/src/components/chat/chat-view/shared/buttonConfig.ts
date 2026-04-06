@@ -306,5 +306,5 @@ export function getButtonConfig(message: ClineMessage | undefined, _mode: Mode =
 		return BUTTON_CONFIGS.command_output
 	}
 
-	return BUTTON_CONFIGS.partial
+	return BUTTON_CONFIGS.default
 }
