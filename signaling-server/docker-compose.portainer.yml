@@ -1,15 +1,20 @@
 version: "3.8"
 
-# Cline Remote Bridge — Signaling Server
+# Cline Remote Bridge — Signaling + TURN Server
 # Portainer Stack — self-contained, no local files needed
 #
 # Deploy:
 # 1. In Portainer → Stacks → Add Stack
 # 2. Paste this file content
-# 3. Click Deploy
+# 3. Set PUBLIC_IP and TURN_SECRET, then click Deploy
 #
-# The server will be available at http://YOUR-NAS-IP:3000
+# The signaling server will be available at http://YOUR-SERVER-IP:3000
 # Use this URL in Cline Settings → Remote Access → Signaling server URL
+#
+# Ports:
+#   3000     — HTTP signaling API
+#   3478/udp — TURN relay (required for cross-network WebRTC)
+#   3478/tcp — TURN relay over TCP (fallback for strict firewalls)
 
 services:
   cline-signal:
@@ -18,10 +23,24 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
     environment:
       - PORT=3000
+      - TURN_PORT=3478
+      - TURN_REALM=cline.bot
+      # Your server's public IP — TURN relay candidates won't be reachable without this
+      - PUBLIC_IP=YOUR_PUBLIC_IP
+      # Stable secret for HMAC credential generation — changing this invalidates existing credentials
+      - TURN_SECRET=CHANGE_ME_TO_A_STRONG_SECRET
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - Geekaboo
+
+networks:
+  Geekaboo:
+    external: true
