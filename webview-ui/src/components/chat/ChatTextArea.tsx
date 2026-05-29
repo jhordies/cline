@@ -1102,12 +1102,21 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					return `${selectedProvider}:${requestyModelId}`
 				case "vercel-ai-gateway":
 					return `${selectedProvider}:${vercelAiGatewayModelId || selectedModelId}`
-				case "anthropic":
-				case "openrouter":
-				default:
-					return `${selectedProvider}:${selectedModelId}`
+			case "anthropic": {
+				// When a custom base URL is set, the model ID comes from the server's
+				// /v1/models list and won't be in anthropicModels. Use the raw saved
+				// value so the label reflects what will actually be sent.
+				const rawAnthropicModelId =
+					mode === "plan" ? apiConfiguration.planModeApiModelId : apiConfiguration.actModeApiModelId
+				const displayId =
+					apiConfiguration.anthropicBaseUrl && rawAnthropicModelId ? rawAnthropicModelId : selectedModelId
+				return `${selectedProvider}:${displayId}`
 			}
-		}, [apiConfiguration, mode])
+			case "openrouter":
+			default:
+				return `${selectedProvider}:${selectedModelId}`
+		}
+	}, [apiConfiguration, mode])
 
 		// Function to show error message for unsupported files for drag and drop
 		const showUnsupportedFileErrorMessage = () => {
