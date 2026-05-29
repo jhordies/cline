@@ -18,8 +18,14 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - name: Install dependencies
+      - name: Install root dependencies
         run: npm ci
+
+      - name: Install webview-ui dependencies
+        run: cd webview-ui && npm ci
+
+      - name: Install CLI dependencies
+        run: cd cli && npm ci
 
       - name: Build VSIX
         run: npx vsce package --no-dependencies -o cline.vsix
