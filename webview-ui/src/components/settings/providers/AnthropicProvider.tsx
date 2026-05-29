@@ -56,8 +56,12 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 	// Models fetched from a custom Anthropic-compatible server
 	const [remoteModelIds, setRemoteModelIds] = useState<string[]>([])
 
-	// Get the normalized configuration
-	const { selectedModelId, selectedModelInfo } = normalizeApiConfiguration(apiConfiguration, currentMode)
+	// Get the normalized configuration (used for the static Anthropic model list)
+	const { selectedModelId: staticSelectedModelId, selectedModelInfo } = normalizeApiConfiguration(apiConfiguration, currentMode)
+
+	// Raw saved model ID — used when pointing at a custom server so we don't
+	// force-map through anthropicModels and lose the selection
+	const rawModelId = currentMode === "plan" ? apiConfiguration?.planModeApiModelId : apiConfiguration?.actModeApiModelId
 
 	// Helper function for model switching
 	const handleModelChange = (modelId: string) => {
@@ -109,6 +113,19 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 	const hasRemoteModels = remoteModelIds.length > 0
 	const usingCustomUrl = !!apiConfiguration?.anthropicBaseUrl
 
+	// When remote models load, auto-select the first one if the current saved
+	// model ID isn't in the remote list (e.g. still set to the static default)
+	useEffect(() => {
+		if (!hasRemoteModels) return
+		if (rawModelId && remoteModelIds.includes(rawModelId)) return
+		// Current selection isn't valid for this server — pick the first available
+		handleModeFieldChange(
+			{ plan: "planModeApiModelId", act: "actModeApiModelId" },
+			remoteModelIds[0],
+			currentMode,
+		)
+	}, [remoteModelIds, rawModelId, hasRemoteModels, currentMode, handleModeFieldChange])
+
 	return (
 		<div>
 			<ApiKeyField
@@ -133,11 +150,13 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 			{showModelOptions && (
 				<>
 					{usingCustomUrl && hasRemoteModels ? (
-						// Custom server: show a plain dropdown of the server's model IDs
+						// Custom server: show a plain dropdown of the server's model IDs.
+						// Use rawModelId (not normalizeApiConfiguration's output) so the
+						// selection isn't force-mapped through the static anthropicModels list.
 						<div style={{ marginBottom: 10 }}>
 							<label style={{ display: "block", fontWeight: 500, marginBottom: 4 }}>Model</label>
 							<select
-								value={selectedModelId}
+								value={rawModelId ?? remoteModelIds[0] ?? ""}
 								onChange={(e) =>
 									handleModeFieldChange(
 										{ plan: "planModeApiModelId", act: "actModeApiModelId" },
@@ -165,7 +184,7 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 									currentMode,
 								)
 							}
-							selectedModelId={selectedModelId}
+							selectedModelId={staticSelectedModelId}
 						/>
 					)}
 
@@ -177,14 +196,14 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 								base1mModelId={`claude-opus-4-6${CLAUDE_SONNET_1M_SUFFIX}`}
 								base200kModelId="claude-opus-4-6"
 								onModelChange={handleModelChange}
-								selectedModelId={selectedModelId}
+								selectedModelId={staticSelectedModelId}
 							/>
 
 							<ContextWindowSwitcher
 								base1mModelId={`claude-opus-4-6${CLAUDE_SONNET_1M_SUFFIX}${ANTHROPIC_FAST_MODE_SUFFIX}`}
 								base200kModelId={`claude-opus-4-6${ANTHROPIC_FAST_MODE_SUFFIX}`}
 								onModelChange={handleModelChange}
-								selectedModelId={selectedModelId}
+								selectedModelId={staticSelectedModelId}
 							/>
 
 							{/* Context window switcher for Claude Sonnet 4.6 */}
@@ -192,7 +211,7 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 								base1mModelId={`claude-sonnet-4-6${CLAUDE_SONNET_1M_SUFFIX}`}
 								base200kModelId="claude-sonnet-4-6"
 								onModelChange={handleModelChange}
-								selectedModelId={selectedModelId}
+								selectedModelId={staticSelectedModelId}
 							/>
 
 							{/* Context window switcher for Claude Sonnet 4.5 */}
@@ -200,7 +219,7 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 								base1mModelId={`claude-sonnet-4-5-20250929${CLAUDE_SONNET_1M_SUFFIX}`}
 								base200kModelId="claude-sonnet-4-5-20250929"
 								onModelChange={handleModelChange}
-								selectedModelId={selectedModelId}
+								selectedModelId={staticSelectedModelId}
 							/>
 
 							{/* Context window switcher for Claude Sonnet 4 */}
@@ -208,16 +227,16 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 								base1mModelId={`claude-sonnet-4-20250514${CLAUDE_SONNET_1M_SUFFIX}`}
 								base200kModelId="claude-sonnet-4-20250514"
 								onModelChange={handleModelChange}
-								selectedModelId={selectedModelId}
+								selectedModelId={staticSelectedModelId}
 							/>
 						</>
 					)}
 
-					{SUPPORTED_ANTHROPIC_THINKING_MODELS.includes(selectedModelId) && (
+					{SUPPORTED_ANTHROPIC_THINKING_MODELS.includes(staticSelectedModelId) && (
 						<ThinkingBudgetSlider currentMode={currentMode} maxBudget={selectedModelInfo.thinkingConfig?.maxBudget} />
 					)}
 
-					<ModelInfoView isPopup={isPopup} modelInfo={selectedModelInfo} selectedModelId={selectedModelId} />
+					<ModelInfoView isPopup={isPopup} modelInfo={selectedModelInfo} selectedModelId={staticSelectedModelId} />
 				</>
 			)}
 		</div>
