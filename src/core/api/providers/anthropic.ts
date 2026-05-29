@@ -45,9 +45,13 @@ export class AnthropicHandler implements ApiHandler {
 				throw new Error("Anthropic API key is required")
 			}
 			try {
+				// Strip trailing /v1 so the SDK (which appends /v1/messages via string
+				// concatenation) doesn't produce a doubled path like /v1/v1/messages.
+				const rawBase = this.options.anthropicBaseUrl
+				const baseURL = rawBase ? rawBase.replace(/\/v1\/?$/, "") || undefined : undefined
 				this.client = new Anthropic({
 					apiKey: this.options.apiKey,
-					baseURL: this.options.anthropicBaseUrl || undefined,
+					baseURL,
 					defaultHeaders: buildExternalBasicHeaders(),
 					fetch, // Use configured fetch with proxy support
 				})

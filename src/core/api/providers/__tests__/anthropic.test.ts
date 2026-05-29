@@ -1,6 +1,7 @@
 import { afterEach, describe, it } from "mocha"
 import sinon from "sinon"
 import "should"
+import Anthropic from "@anthropic-ai/sdk"
 import { anthropicModels } from "@shared/api"
 import { ANTHROPIC_FAST_MODE_BETA, AnthropicHandler } from "../anthropic"
 
@@ -38,6 +39,45 @@ describe("AnthropicHandler", () => {
 
 			result.id.should.equal("claude-opus-4-6:1m:fast")
 			result.info.should.deepEqual(anthropicModels["claude-opus-4-6:1m:fast"])
+		})
+	})
+
+	describe("ensureClient / baseURL normalization", () => {
+		it("should strip trailing /v1 from anthropicBaseUrl", () => {
+			const handler = new AnthropicHandler({
+				apiKey: "test-api-key",
+				anthropicBaseUrl: "http://127.0.0.1:61823/v1",
+			})
+			const spy = sinon.spy(Anthropic.prototype, "constructor" as keyof Anthropic)
+			// Access private client by casting
+			const client = (handler as unknown as { ensureClient: () => Anthropic }).ensureClient()
+			client.baseURL.should.equal("http://127.0.0.1:61823")
+			spy.restore()
+		})
+
+		it("should strip trailing /v1/ (with trailing slash) from anthropicBaseUrl", () => {
+			const handler = new AnthropicHandler({
+				apiKey: "test-api-key",
+				anthropicBaseUrl: "http://127.0.0.1:61823/v1/",
+			})
+			const client = (handler as unknown as { ensureClient: () => Anthropic }).ensureClient()
+			client.baseURL.should.equal("http://127.0.0.1:61823")
+		})
+
+		it("should leave a plain host:port baseUrl unchanged", () => {
+			const handler = new AnthropicHandler({
+				apiKey: "test-api-key",
+				anthropicBaseUrl: "http://127.0.0.1:61823",
+			})
+			const client = (handler as unknown as { ensureClient: () => Anthropic }).ensureClient()
+			client.baseURL.should.equal("http://127.0.0.1:61823")
+		})
+
+		it("should use the default Anthropic baseURL when no anthropicBaseUrl is set", () => {
+			const handler = new AnthropicHandler({ apiKey: "test-api-key" })
+			const client = (handler as unknown as { ensureClient: () => Anthropic }).ensureClient()
+			// SDK default is https://api.anthropic.com
+			client.baseURL.should.startWith("https://api.anthropic.com")
 		})
 	})
 

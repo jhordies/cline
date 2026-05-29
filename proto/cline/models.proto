@@ -55,6 +55,8 @@ service ModelsService {
   rpc getAihubmixModels(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
   // Refreshes and returns Vercel AI Gateway models
   rpc refreshVercelAiGatewayModelsRpc(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
+  // Fetches available models from an Anthropic-compatible server
+  rpc refreshAnthropicModels(AnthropicModelsRequest) returns (StringArray);
 }
 
 // List of VS Code LM models
@@ -134,6 +136,12 @@ message OpenAiModelsRequest {
   Metadata metadata = 1;
   string base_url = 2;
   string api_key = 3;
+}
+
+// Request for fetching Anthropic-compatible server models
+message AnthropicModelsRequest {
+  Metadata metadata = 1;
+  string base_url = 2;
 }
 
 // Request for fetching SAP AI Core models
