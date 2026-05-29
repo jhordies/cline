@@ -15,20 +15,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: "22"
 
       - name: Install root dependencies
-        run: npm ci
+        run: npm install --include=optional
 
       - name: Install webview-ui dependencies
-        run: cd webview-ui && npm ci
+        run: cd webview-ui && npm install --include=optional
 
-      - name: Install CLI dependencies
-        run: cd cli && npm ci
+      - name: Install Publishing Tools
+        run: npm install -g @vscode/vsce
 
       - name: Build VSIX
-        run: npx vsce package --no-dependencies -o cline.vsix
+        run: vsce package --allow-package-secrets sendgrid -o cline.vsix
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
