@@ -287,6 +287,22 @@ export class AnthropicHandler implements ApiHandler {
 			const id = modelId as AnthropicModelId
 			return { id, info: anthropicModels[id] }
 		}
+		// When pointing at a custom server (e.g. Amazon Q on http://127.0.0.1:61823)
+		// the model IDs come from that server's /v1/models list and won't be in the
+		// static anthropicModels map. Use the raw model ID as-is with sane defaults.
+		if (modelId && this.options.anthropicBaseUrl) {
+			return {
+				id: modelId as AnthropicModelId,
+				info: {
+					maxTokens: 64_000,
+					contextWindow: 200_000,
+					supportsImages: true,
+					supportsPromptCache: false,
+					inputPrice: 0,
+					outputPrice: 0,
+				},
+			}
+		}
 		return {
 			id: anthropicDefaultModelId,
 			info: anthropicModels[anthropicDefaultModelId],
