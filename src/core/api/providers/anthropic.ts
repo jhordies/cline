@@ -81,18 +81,27 @@ export class AnthropicHandler implements ApiHandler {
 			`[AnthropicHandler] createMessage — baseURL: ${this.options.anthropicBaseUrl ?? "(default)"}, model: ${this.options.apiModelId}`,
 		)
 		const client = this.ensureClient()
-		// Smoke test: verify the gateway is reachable before the SDK call
+		// Smoke test: verify POST streaming works via direct fetch (bypassing SDK)
 		try {
-			await fetch(`${this.options.anthropicBaseUrl ?? "https://api.anthropic.com"}/v1/models`)
-				.then((r) => Logger.debug(`[AnthropicHandler] preflight GET /v1/models -> ${r.status}`))
-				.catch((e: unknown) => {
-					Logger.error(
-						`[AnthropicHandler] preflight fetch FAILED: ${e instanceof Error ? e.constructor.name + ": " + e.message : String(e)}`,
-					)
-				})
+			const testBody = JSON.stringify({
+				model: this.options.apiModelId ?? "claude-sonnet-4.6",
+				max_tokens: 10,
+				messages: [{ role: "user", content: "hi" }],
+				stream: true,
+			})
+			const testResp = await fetch(`${this.options.anthropicBaseUrl ?? "https://api.anthropic.com"}/v1/messages`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-api-key": this.options.apiKey ?? "dummy",
+					"anthropic-version": "2023-06-01",
+				},
+				body: testBody,
+			})
+			Logger.debug(`[AnthropicHandler] direct POST /v1/messages -> ${testResp.status}, body type: ${typeof testResp.body}, bodyUsed: ${testResp.bodyUsed}`)
 		} catch (e: unknown) {
 			Logger.error(
-				`[AnthropicHandler] preflight sync error: ${e instanceof Error ? e.constructor.name + ": " + e.message : String(e)}`,
+				`[AnthropicHandler] direct POST FAILED: ${e instanceof Error ? e.constructor.name + ": " + e.message : String(e)}`,
 			)
 		}
 
