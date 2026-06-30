@@ -62,6 +62,14 @@ export class ErrorService {
 	}
 
 	public toClineError(rawError: unknown, modelId?: string, providerId?: string): ClineError {
+		// Log raw error before transform to capture original cause details
+		if (rawError instanceof Error) {
+			const cause = (rawError as any).cause
+			const causeStr = cause
+				? ` | raw.cause: ${cause instanceof Error ? cause.constructor.name + ": " + cause.message : String(cause)}`
+				: ""
+			Logger.error(`[ErrorService] raw error before transform: ${rawError.constructor.name}: ${rawError.message}${causeStr}`)
+		}
 		const transformed = ClineError.transform(rawError, modelId, providerId)
 		this.logException(transformed, { modelId, providerId })
 		return transformed
