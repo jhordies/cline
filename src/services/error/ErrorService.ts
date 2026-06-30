@@ -47,12 +47,10 @@ export class ErrorService {
 	public logException(error: Error | ClineError, properties?: Record<string, unknown>): void {
 		this.provider.logException(error, properties)
 		const cause = (error as any).cause
-		Logger.error(
-			"[ErrorService] Logging exception",
-			error.message,
-			error.stack,
-			cause ? `cause: ${cause instanceof Error ? cause.message + "\n" + cause.stack : String(cause)}` : "",
-		)
+		const causeStr = cause
+			? ` | cause: ${cause instanceof Error ? cause.message + (cause.stack ? " @ " + cause.stack.split("\n")[1]?.trim() : "") : String(cause)}`
+			: ""
+		Logger.error(`[ErrorService] Logging exception: ${error.message}${causeStr} | stack: ${error.stack?.split("\n")[1]?.trim() ?? "n/a"}`)
 	}
 
 	public logMessage(
