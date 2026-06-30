@@ -46,7 +46,13 @@ export class ErrorService {
 
 	public logException(error: Error | ClineError, properties?: Record<string, unknown>): void {
 		this.provider.logException(error, properties)
-		Logger.error("[ErrorService] Logging exception", JSON.stringify(error))
+		const cause = (error as any).cause
+		Logger.error(
+			"[ErrorService] Logging exception",
+			error.message,
+			error.stack,
+			cause ? `cause: ${cause instanceof Error ? cause.message + "\n" + cause.stack : String(cause)}` : "",
+		)
 	}
 
 	public logMessage(

@@ -17,6 +17,7 @@ import {
 import { buildExternalBasicHeaders } from "@/services/EnvUtils"
 import { ClineStorageMessage } from "@/shared/messages/content"
 import { fetch } from "@/shared/net"
+import { Logger } from "@/shared/services/Logger"
 import { ApiHandler, CommonApiHandlerOptions } from "../index"
 import { withRetry } from "../retry"
 import { sanitizeAnthropicMessages } from "../transform/anthropic-format"
@@ -49,13 +50,18 @@ export class AnthropicHandler implements ApiHandler {
 				// concatenation) doesn't produce a doubled path like /v1/v1/messages.
 				const rawBase = this.options.anthropicBaseUrl
 				const baseURL = rawBase ? rawBase.replace(/\/v1\/?$/, "") || undefined : undefined
+				Logger.debug(
+					`[AnthropicHandler] ensureClient — rawBase: ${rawBase ?? "(none)"}, resolvedBaseURL: ${baseURL ?? "(Anthropic default)"}`,
+				)
 				this.client = new Anthropic({
 					apiKey: this.options.apiKey,
 					baseURL,
 					defaultHeaders: buildExternalBasicHeaders(),
 					fetch, // Use configured fetch with proxy support
 				})
+				Logger.debug(`[AnthropicHandler] Anthropic client created, baseURL: ${this.client.baseURL}`)
 			} catch (error) {
+				Logger.error(`[AnthropicHandler] Failed to create Anthropic client: ${error.message}`)
 				throw new Error(`Error creating Anthropic client: ${error.message}`)
 			}
 		}
@@ -64,6 +70,9 @@ export class AnthropicHandler implements ApiHandler {
 
 	@withRetry()
 	async *createMessage(systemPrompt: string, messages: ClineStorageMessage[], tools?: AnthropicTool[]): ApiStream {
+		Logger.debug(
+			`[AnthropicHandler] createMessage — baseURL: ${this.options.anthropicBaseUrl ?? "(default)"}, model: ${this.options.apiModelId}`,
+		)
 		const client = this.ensureClient()
 
 		const model = this.getModel()
