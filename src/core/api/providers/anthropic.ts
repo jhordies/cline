@@ -74,6 +74,20 @@ export class AnthropicHandler implements ApiHandler {
 			`[AnthropicHandler] createMessage — baseURL: ${this.options.anthropicBaseUrl ?? "(default)"}, model: ${this.options.apiModelId}`,
 		)
 		const client = this.ensureClient()
+		// Smoke test: verify the gateway is reachable before the SDK call
+		try {
+			await fetch(`${this.options.anthropicBaseUrl ?? "https://api.anthropic.com"}/v1/models`)
+				.then((r) => Logger.debug(`[AnthropicHandler] preflight GET /v1/models -> ${r.status}`))
+				.catch((e: unknown) => {
+					Logger.error(
+						`[AnthropicHandler] preflight fetch FAILED: ${e instanceof Error ? e.constructor.name + ": " + e.message : String(e)}`,
+					)
+				})
+		} catch (e: unknown) {
+			Logger.error(
+				`[AnthropicHandler] preflight sync error: ${e instanceof Error ? e.constructor.name + ": " + e.message : String(e)}`,
+			)
+		}
 
 		const model = this.getModel()
 		let stream: AnthropicStream<Anthropic.RawMessageStreamEvent> | AsyncIterable<BetaRawMessageStreamEvent>
