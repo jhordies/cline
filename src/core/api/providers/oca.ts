@@ -94,7 +94,8 @@ export class OcaHandler implements ApiHandler {
 				options.ocaBaseUrl ||
 				(options.ocaMode === "internal" ? DEFAULT_INTERNAL_OCA_BASE_URL : DEFAULT_EXTERNAL_OCA_BASE_URL),
 			apiKey: "noop",
-			fetch, // Use configured fetch with proxy support
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			fetch: fetch as any, // shims/node changes Fetch type; cast needed
 		})
 	}
 
@@ -146,7 +147,8 @@ export class OcaHandler implements ApiHandler {
 				options.ocaBaseUrl ||
 				(options.ocaMode === "internal" ? DEFAULT_INTERNAL_OCA_BASE_URL : DEFAULT_EXTERNAL_OCA_BASE_URL),
 			apiKey: "noop",
-			fetch, // Use configured fetch with proxy support
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			fetch: fetch as any, // shims/node changes Fetch type; cast needed
 		})
 	}
 

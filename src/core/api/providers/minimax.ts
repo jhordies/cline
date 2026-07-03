@@ -39,7 +39,8 @@ export class MinimaxHandler implements ApiHandler {
 							? "https://api.minimaxi.com/anthropic"
 							: "https://api.minimax.io/anthropic",
 					defaultHeaders: externalHeaders,
-					fetch, // Use configured fetch with proxy support
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+					fetch: fetch as any, // shims/node changes Fetch type; cast needed
 				})
 			} catch (error) {
 				throw new Error(`Error creating MiniMax client: ${error.message}`)
