@@ -53,20 +53,12 @@ export class AnthropicHandler implements ApiHandler {
 				Logger.debug(
 					`[AnthropicHandler] ensureClient — rawBase: ${rawBase ?? "(none)"}, resolvedBaseURL: ${baseURL ?? "(Anthropic default)"}`,
 				)
-				// VS Code's globalThis.fetch rejects streaming POST requests when an
-				// AbortSignal is attached. Wrap the fetch to strip the signal so the
-				// request succeeds, then the SDK's own AbortController still works via
-				// the response-level abort path.
-				const wrappedFetch: typeof fetch = (url, init) => {
-					const { signal: _dropped, ...initWithoutSignal } = (init ?? {}) as RequestInit & { signal?: AbortSignal }
-					return fetch(url, initWithoutSignal)
-				}
 				this.client = new Anthropic({
 					apiKey: this.options.apiKey,
 					baseURL,
 					defaultHeaders: buildExternalBasicHeaders(),
 					// eslint-disable-next-line @typescript-eslint/no-explicit-any
-					fetch: wrappedFetch as any,
+					fetch: fetch as any,
 				})
 				Logger.debug(`[AnthropicHandler] Anthropic client created, baseURL: ${this.client.baseURL}`)
 			} catch (error) {
