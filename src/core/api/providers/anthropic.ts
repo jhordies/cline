@@ -57,8 +57,8 @@ export class AnthropicHandler implements ApiHandler {
 					apiKey: this.options.apiKey,
 					baseURL,
 					defaultHeaders: buildExternalBasicHeaders(),
-					// eslint-disable-next-line @typescript-eslint/no-explicit-any
-					fetch: fetch as any,
+					// Do NOT pass fetch here — the node shim provides node-fetch
+					// which supports streaming SSE. VS Code's fetch does not.
 				})
 				Logger.debug(`[AnthropicHandler] Anthropic client created, baseURL: ${this.client.baseURL}`)
 			} catch (error) {
