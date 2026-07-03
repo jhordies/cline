@@ -1,6 +1,11 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 
+// Force the Anthropic SDK to use Node.js runtime shims throughout the extension.
+// Must be the first import so the shim is applied before any @anthropic-ai/sdk module loads.
+// Without this, the SDK auto-detects "web" environment in VS Code's extension host and uses
+// globalThis.ReadableStream which fails for streaming SSE responses (TypeError: fetch failed).
+import "@anthropic-ai/sdk/shims/node"
 import assert from "node:assert"
 import { DIFF_VIEW_URI_SCHEME } from "@hosts/vscode/VscodeDiffViewProvider"
 import * as vscode from "vscode"

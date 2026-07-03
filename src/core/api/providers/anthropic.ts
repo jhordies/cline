@@ -1,11 +1,4 @@
 import { Anthropic } from "@anthropic-ai/sdk"
-// Force the Anthropic SDK to use Node.js runtime shims instead of web shims.
-// In VS Code's extension host, the SDK auto-detects "web" environment and uses
-// globalThis.ReadableStream which doesn't support streaming SSE responses.
-// The Node shim uses proper Node.js stream handling via undici Readable streams.
-// We do this via require() to avoid TypeScript type pollution from the shim import.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-require("@anthropic-ai/sdk/shims/node")
 import type {
 	MessageCreateParamsStreaming as BetaMessageCreateParamsStreaming,
 	BetaRawMessageStreamEvent,

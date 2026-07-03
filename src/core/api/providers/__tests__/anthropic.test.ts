@@ -1,3 +1,5 @@
+// Must be first — force Node.js runtime shims before any @anthropic-ai/sdk import
+import "@anthropic-ai/sdk/shims/node"
 import { afterEach, describe, it } from "mocha"
 import sinon from "sinon"
 import "should"
