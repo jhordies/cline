@@ -7,14 +7,26 @@ import {
 	getClineEnvironmentConfig,
 	type JsonValue,
 	type ProviderCapability,
+	type ProviderConfigField,
 } from "@cline/shared";
 import { getGeneratedModelsForProvider } from "../catalog/catalog.generated-access";
+import {
+	isCanonicalModelIdForAliasRules,
+	preferCanonicalModelIds,
+	VERCEL_OPENROUTER_MODEL_ID_ALIAS_RULES,
+} from "../catalog/model-id-aliases";
 import type {
 	ModelCollection,
 	ModelInfo,
 	ProviderClient,
 	ProviderProtocol,
 } from "../catalog/types";
+import {
+	ClineNotSubscribedError,
+	ClineOrgIndividualInferenceSubscriptionError,
+	isClineNotSubscribedMessage,
+	isClineOrgIndividualInferenceSubscriptionMessage,
+} from "./errors";
 import { filterOpenAICodexModels } from "./openai-codex-models";
 import {
 	ANTHROPIC_AND_QWEN_CACHE_ROUTING_METADATA,
@@ -22,12 +34,22 @@ import {
 	QWEN_CACHE_ROUTING_METADATA,
 } from "./routing/anthropic-compatible";
 import { GLM_THINKING_ROUTING_METADATA } from "./routing/glm-thinking";
+import { MINIMAX_THINKING_ROUTING_METADATA } from "./routing/minimax-thinking";
 
 export const DEFAULT_INTERNAL_OCA_BASE_URL =
 	"https://code-internal.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm";
 export const DEFAULT_EXTERNAL_OCA_BASE_URL =
 	"https://code.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm";
+const CLINE_DEFAULT_MODEL_ID = "anthropic/claude-sonnet-4.6";
+const CLINE_PASS_PROVIDER_ID = "cline-pass";
 const OPENAI_CODEX_DEFAULT_MODEL_ID = "gpt-5.4";
+const OPENROUTER_STICKY_SESSION_METADATA: GatewayProviderMetadata = {
+	stickySession: {
+		transport: "json-body",
+		field: "session_id",
+		metadataKey: "sessionId",
+	},
+};
 
 export type ProviderFamily =
 	| "openai"
@@ -40,7 +62,8 @@ export type ProviderFamily =
 	| "claude-code"
 	| "openai-codex"
 	| "opencode"
-	| "dify";
+	| "dify"
+	| "sap-ai-core";
 
 export interface BuiltinSpec {
 	id: string;
@@ -59,7 +82,174 @@ export interface BuiltinSpec {
 	modelsSourceUrl?: string;
 	docsUrl?: string;
 	defaults?: GatewayProviderSettings;
+	configFields?: readonly ProviderConfigField[];
 	metadata?: GatewayProviderMetadata;
+}
+
+const API_KEY_FIELD: ProviderConfigField = {
+	path: "apiKey",
+	label: "API Key",
+	type: "password",
+	placeholder: "Enter API key...",
+	description: "API key issued by the provider.",
+	secret: true,
+};
+
+const BASE_URL_FIELD: ProviderConfigField = {
+	path: "baseUrl",
+	label: "Base URL",
+	type: "url",
+	placeholder: "https://...",
+	description: "Base endpoint used for provider requests.",
+};
+
+const VERTEX_CONFIG_FIELDS: readonly ProviderConfigField[] = [
+	{
+		path: "gcp.projectId",
+		label: "Google Cloud Project ID",
+		type: "text",
+		placeholder: "my-gcp-project",
+		description: "Google Cloud project that owns the Vertex AI resources.",
+		required: true,
+	},
+	{
+		path: "gcp.region",
+		label: "Vertex Region",
+		type: "text",
+		placeholder: "us-central1",
+		description: "Vertex AI location to run models in.",
+		defaultValue: "us-central1",
+	},
+	{
+		...API_KEY_FIELD,
+		label: "API Key",
+		description:
+			"Optional Google API key for Gemini models. Vertex Anthropic models use Google Cloud credentials.",
+	},
+];
+
+const BEDROCK_CONFIG_FIELDS: readonly ProviderConfigField[] = [
+	{
+		path: "aws.authentication",
+		label: "Authentication",
+		type: "select",
+		description: "Credential source for Amazon Bedrock requests.",
+		options: [
+			{ label: "AWS SDK / IAM", value: "iam" },
+			{ label: "AWS Profile", value: "profile" },
+			{ label: "API Key", value: "api-key" },
+		],
+		defaultValue: "iam",
+	},
+	{
+		path: "aws.region",
+		label: "AWS Region",
+		type: "text",
+		placeholder: "us-east-1",
+		description: "AWS region for Bedrock runtime requests.",
+	},
+	{
+		path: "aws.profile",
+		label: "AWS Profile",
+		type: "text",
+		placeholder: "default",
+		description: "Named AWS profile when using profile authentication.",
+	},
+	{
+		path: "aws.accessKey",
+		label: "Access Key ID",
+		type: "password",
+		placeholder: "AKIA...",
+		secret: true,
+	},
+	{
+		path: "aws.secretKey",
+		label: "Secret Access Key",
+		type: "password",
+		secret: true,
+	},
+	{
+		path: "aws.sessionToken",
+		label: "Session Token",
+		type: "password",
+		secret: true,
+	},
+	{
+		path: "apiKey",
+		label: "Bedrock API Key",
+		type: "password",
+		description: "Optional Bedrock bearer token for API key authentication.",
+		secret: true,
+	},
+	{
+		path: "aws.endpoint",
+		label: "Endpoint URL",
+		type: "url",
+		placeholder: "https://bedrock-runtime.us-east-1.amazonaws.com",
+		description: "Optional custom Bedrock runtime endpoint.",
+	},
+	{
+		path: "aws.useCrossRegionInference",
+		label: "Cross-Region Inference",
+		type: "boolean",
+	},
+	{
+		path: "aws.useGlobalInference",
+		label: "Global Inference",
+		type: "boolean",
+	},
+	{
+		path: "aws.usePromptCache",
+		label: "Prompt Cache",
+		type: "boolean",
+	},
+];
+
+const OCA_CONFIG_FIELDS: readonly ProviderConfigField[] = [
+	{
+		path: "oca.mode",
+		label: "OCA Mode",
+		type: "select",
+		options: [
+			{ label: "External", value: "external" },
+			{ label: "Internal", value: "internal" },
+		],
+		defaultValue: "external",
+	},
+	API_KEY_FIELD,
+	{
+		path: "oca.usePromptCache",
+		label: "Prompt Cache",
+		type: "boolean",
+	},
+];
+
+const QWEN_CONFIG_FIELDS: readonly ProviderConfigField[] = [
+	API_KEY_FIELD,
+	BASE_URL_FIELD,
+	{
+		path: "apiLine",
+		label: "API Line",
+		type: "select",
+		description: "Regional API line for Qwen routing.",
+		options: [
+			{ label: "International", value: "international" },
+			{ label: "China", value: "china" },
+		],
+	},
+];
+
+function defaultConfigFieldsForSpec(
+	spec: BuiltinSpec,
+): readonly ProviderConfigField[] {
+	const fields: ProviderConfigField[] = [];
+	if (spec.apiKeyEnv?.length) {
+		fields.push(API_KEY_FIELD);
+	}
+	if (spec.defaults?.baseUrl?.trim()) {
+		fields.push(BASE_URL_FIELD);
+	}
+	return fields;
 }
 
 function cloneModels(
@@ -89,12 +279,27 @@ function getProviderCapabilities(
 function getProviderMetadata(
 	spec: BuiltinSpec,
 ): GatewayProviderMetadata | undefined {
-	if (spec.popular === undefined) return spec.metadata;
-	return { ...spec.metadata, popularRank: spec.popular };
+	const configFields = spec.configFields ?? defaultConfigFieldsForSpec(spec);
+	const metadata: GatewayProviderMetadata = {
+		...spec.metadata,
+		configFields,
+	};
+	if (spec.popular !== undefined) {
+		metadata.popularRank = spec.popular;
+	}
+	return metadata;
 }
 
 function generatedModels(providerId: string): Record<string, ModelInfo> {
 	return cloneModels(getGeneratedModelsForProvider(providerId));
+}
+
+function firstGeneratedModelId(providerId: string): string {
+	const generatedModelList = Object.keys(generatedModels(providerId));
+	if (!generatedModelList.length) {
+		return "";
+	}
+	return generatedModelList[0];
 }
 
 function pickAnthropicModel(match: (id: string) => boolean): ModelInfo {
@@ -135,6 +340,27 @@ function buildClaudeCodeModels(): Record<string, ModelInfo> {
 
 function buildOpenAICodexModels(): Record<string, ModelInfo> {
 	return filterOpenAICodexModels(generatedModels("openai-native"));
+}
+
+function buildClineModels(): Record<string, ModelInfo> {
+	// Cline is OpenRouter-backed generally, but its recommended-model endpoint
+	// can return Vercel-style ids. Include those exact ids so runtime metadata
+	// resolves without adding duplicate OpenRouter aliases to the picker.
+	const vercelAliasModels = Object.fromEntries(
+		Object.entries(generatedModels("vercel-ai-gateway")).filter(([modelId]) =>
+			isCanonicalModelIdForAliasRules(
+				modelId,
+				VERCEL_OPENROUTER_MODEL_ID_ALIAS_RULES,
+			),
+		),
+	);
+	return preferCanonicalModelIds(
+		{
+			...generatedModels("openrouter"),
+			...vercelAliasModels,
+		},
+		VERCEL_OPENROUTER_MODEL_ID_ALIAS_RULES,
+	);
 }
 
 function fallbackModelInfo(id: string, spec?: BuiltinSpec): ModelInfo {
@@ -245,11 +471,104 @@ function inferClient(spec: BuiltinSpec): ProviderClient {
 		case "openai-codex":
 		case "opencode":
 		case "dify":
+		case "sap-ai-core":
 			return "ai-sdk-community";
 		default:
 			return "openai-compatible";
 	}
 }
+
+function createClineLikeSpec(
+	input: Pick<BuiltinSpec, "id" | "name" | "defaultModelId"> &
+		Partial<
+			Pick<
+				BuiltinSpec,
+				| "description"
+				| "popular"
+				| "modelsProviderId"
+				| "modelsFactory"
+				| "metadata"
+				| "defaults"
+			>
+		>,
+): BuiltinSpec {
+	return {
+		id: input.id,
+		name: input.name,
+		description: input.description ?? "Cline API endpoint",
+		family: "openai-compatible",
+		popular: input.popular,
+		capabilities: ["reasoning", "prompt-cache", "tools", "oauth"],
+		modelsProviderId: input.modelsProviderId,
+		modelsFactory: input.modelsFactory,
+		defaultModelId: input.defaultModelId,
+		apiKeyEnv: ["CLINE_API_KEY"],
+		defaults: {
+			get baseUrl(): string {
+				return `${getClineEnvironmentConfig().apiBaseUrl}/api/v1`;
+			},
+			...input.defaults,
+		},
+		metadata: {
+			...ANTHROPIC_AND_QWEN_CACHE_ROUTING_METADATA,
+			...input.metadata,
+		},
+	};
+}
+
+async function handleClineResponseError(
+	response: Response,
+	providerId: string,
+): Promise<void> {
+	if (response.status !== 403) {
+		return;
+	}
+
+	const body = await response
+		.clone()
+		.text()
+		.catch(() => "");
+
+	if (isClineOrgIndividualInferenceSubscriptionMessage(body)) {
+		throw new ClineOrgIndividualInferenceSubscriptionError(providerId);
+	}
+
+	if (isClineNotSubscribedMessage(body)) {
+		throw new ClineNotSubscribedError(providerId);
+	}
+}
+
+const cline = createClineLikeSpec({
+	id: "cline",
+	name: "Cline Usage-Billing",
+	popular: 1,
+	modelsFactory: buildClineModels,
+	defaultModelId: CLINE_DEFAULT_MODEL_ID,
+	defaults: {
+		options: {
+			onResponseError: async (response: Response) => {
+				await handleClineResponseError(response, "cline");
+			},
+		},
+	},
+});
+
+const clinePass = createClineLikeSpec({
+	id: CLINE_PASS_PROVIDER_ID,
+	name: "ClinePass",
+	popular: 2,
+	description: "Cline API endpoint with ClinePass models",
+	modelsProviderId: CLINE_PASS_PROVIDER_ID,
+	defaultModelId: firstGeneratedModelId(CLINE_PASS_PROVIDER_ID),
+	metadata: { usageCostDisplay: "subscription" },
+	defaults: {
+		options: {
+			onResponseError: async (response: Response) => {
+				await handleClineResponseError(response, CLINE_PASS_PROVIDER_ID);
+			},
+		},
+	},
+});
 
 const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 	{
@@ -257,35 +576,20 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		name: "OpenAI Compatible",
 		description: "OpenAI-compatible chat completions endpoint",
 		family: "openai-compatible",
-		popular: 7,
+		popular: 35,
 		capabilities: ["tools"],
 		defaultModelId: "gpt-4o",
 		apiKeyEnv: ["OPENAI_API_KEY"],
 		defaults: { baseUrl: "https://api.openai.com/v1" },
 	},
-	{
-		id: "cline",
-		name: "Cline",
-		description: "Cline API endpoint",
-		family: "openai-compatible",
-		popular: 1,
-		capabilities: ["reasoning", "prompt-cache", "tools", "oauth"],
-		modelsProviderId: "openrouter",
-		defaultModelId: "anthropic/claude-sonnet-4.6",
-		apiKeyEnv: ["CLINE_API_KEY"],
-		defaults: {
-			get baseUrl(): string {
-				return `${getClineEnvironmentConfig().apiBaseUrl}/api/v1`;
-			},
-		},
-		metadata: ANTHROPIC_AND_QWEN_CACHE_ROUTING_METADATA,
-	},
+	cline,
+	clinePass,
 	{
 		id: "deepseek",
 		name: "DeepSeek",
 		description: "Advanced AI models with reasoning capabilities",
 		family: "openai-compatible",
-		popular: 3,
+		popular: 10,
 		capabilities: ["reasoning", "prompt-cache"],
 		defaultModelId: "deepseek-v4-flash",
 		apiKeyEnv: ["DEEPSEEK_API_KEY"],
@@ -316,7 +620,7 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		name: "Fireworks AI",
 		description: "High-performance inference platform",
 		family: "openai-compatible",
-		defaultModelId: "accounts/fireworks/models/minimax-m2p5",
+		defaultModelId: "accounts/fireworks/models/kimi-k2p6",
 		apiKeyEnv: ["FIREWORKS_API_KEY"],
 		defaults: { baseUrl: "https://api.fireworks.ai/inference/v1" },
 	},
@@ -392,7 +696,7 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		description: "Self-hosted LLM proxy",
 		family: "openai-compatible",
 		protocol: "openai-responses",
-		popular: 8,
+		popular: 40,
 		capabilities: ["prompt-cache"],
 		defaultModelId: "gpt-5.4",
 		apiKeyEnv: ["LITELLM_API_KEY"],
@@ -406,7 +710,7 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		defaultModelId: "MiniMaxAI/MiniMax-M2.5",
 		apiKeyEnv: ["HF_TOKEN"],
 		modelsProviderId: "huggingface",
-		defaults: { baseUrl: "https://api-inference.huggingface.co/v1" },
+		defaults: { baseUrl: "https://router.huggingface.co/v1" },
 	},
 	{
 		id: "vercel-ai-gateway",
@@ -426,7 +730,6 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		description:
 			"The Vercel provider gives you access to the v0 API, designed for building modern web applications.",
 		family: "openai-compatible",
-		protocol: "openai-responses",
 		capabilities: ["reasoning", "tools"],
 		defaultModelId: "v0-1.5-md",
 		apiKeyEnv: ["V0_API_KEY"],
@@ -484,6 +787,7 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		apiKeyEnv: ["QWEN_API_KEY"],
 		modelsProviderId: "qwen",
 		defaults: { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+		configFields: QWEN_CONFIG_FIELDS,
 		metadata: QWEN_CACHE_ROUTING_METADATA,
 	},
 	{
@@ -495,6 +799,7 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		defaultModelId: "qwen3-coder-plus",
 		modelsProviderId: "qwen-code",
 		defaults: { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+		configFields: QWEN_CONFIG_FIELDS,
 		metadata: QWEN_CACHE_ROUTING_METADATA,
 	},
 	{
@@ -526,7 +831,7 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		description: "Z.AI's coding-focused models",
 		family: "openai-compatible",
 		capabilities: ["reasoning", "tools"],
-		defaultModelId: "glm-5v-turbo",
+		defaultModelId: "glm-5.2",
 		apiKeyEnv: ["ZHIPU_API_KEY"],
 		modelsProviderId: "zai-coding-plan",
 		defaults: { baseUrl: "https://api.z.ai/api/coding/paas/v4" },
@@ -559,12 +864,23 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		name: "Xiaomi",
 		description: "Xiaomi",
 		family: "openai-compatible",
-		protocol: "openai-responses",
 		capabilities: ["prompt-cache", "tools", "reasoning"],
-		defaultModelId: "mimo-v2-omni",
+		defaultModelId: "mimo-v2.5",
 		apiKeyEnv: ["XIAOMI_API_KEY"],
 		modelsProviderId: "xiaomi",
 		defaults: { baseUrl: "https://api.xiaomimimo.com/v1" },
+	},
+	{
+		id: "tencent-tokenhub",
+		name: "Tencent TokenHub",
+		description: "Tencent TokenHub AI models",
+		family: "openai-compatible",
+		capabilities: ["tools", "reasoning"],
+		defaultModelId: "hy3-preview",
+		apiKeyEnv: ["TENCENT_TOKENHUB_API_KEY"],
+		modelsProviderId: "tencent-tokenhub",
+		docsUrl: "https://cloud.tencent.com/document/product/1823/130050",
+		defaults: { baseUrl: "https://tokenhub.tencentmaas.com/v1" },
 	},
 	{
 		id: "kilo",
@@ -583,21 +899,24 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		name: "OpenRouter",
 		description: "OpenRouter AI platform",
 		family: "openai-compatible",
-		popular: 5,
+		popular: 20,
 		capabilities: ["reasoning", "prompt-cache"],
 		defaultModelId: "anthropic/claude-sonnet-4.6",
 		apiKeyEnv: ["OPENROUTER_API_KEY"],
 		modelsProviderId: "openrouter",
 		docsUrl: "https://openrouter.ai/models",
 		defaults: { baseUrl: "https://openrouter.ai/api/v1" },
-		metadata: ANTHROPIC_AND_QWEN_CACHE_ROUTING_METADATA,
+		metadata: {
+			...ANTHROPIC_AND_QWEN_CACHE_ROUTING_METADATA,
+			...OPENROUTER_STICKY_SESSION_METADATA,
+		},
 	},
 	{
 		id: "ollama",
 		name: "Ollama",
 		description: "Ollama Cloud and local LLM hosting",
 		family: "openai-compatible",
-		popular: 6,
+		popular: 25,
 		defaultModelId: "",
 		apiKeyEnv: ["OLLAMA_API_KEY"],
 		defaults: { baseUrl: "http://localhost:11434/v1" },
@@ -624,6 +943,7 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		apiKeyEnv: ["OCA_API_KEY"],
 		modelsProviderId: "oca",
 		defaults: { baseUrl: DEFAULT_EXTERNAL_OCA_BASE_URL },
+		configFields: OCA_CONFIG_FIELDS,
 		metadata: ANTHROPIC_ROUTING_METADATA,
 	},
 	{
@@ -637,18 +957,6 @@ const OPENAI_COMPATIBLE_SPECS: BuiltinSpec[] = [
 		apiKeyEnv: ["ASKSAGE_API_KEY"],
 		modelsFactory: () => ({}),
 		defaults: { baseUrl: "https://api.asksage.ai/server" },
-	},
-	{
-		id: "sapaicore",
-		name: "SAP AI Core",
-		description: "SAP AI Core inference and orchestration platform",
-		family: "openai-compatible",
-		client: "ai-sdk-community",
-		capabilities: ["tools", "reasoning", "prompt-cache"],
-		defaultModelId: "anthropic--claude-3.5-sonnet",
-		apiKeyEnv: ["AICORE_SERVICE_KEY", "VCAP_SERVICES"],
-		modelsProviderId: "sapaicore",
-		metadata: ANTHROPIC_ROUTING_METADATA,
 	},
 ];
 
@@ -670,12 +978,13 @@ export const BUILTIN_SPECS: BuiltinSpec[] = [
 		description:
 			"OpenAI ChatGPT subscription access uses an OAuth device code flow.",
 		family: "openai",
-		popular: 2,
+		popular: 5,
 		capabilities: ["reasoning", "oauth"],
 		defaultModelId: OPENAI_CODEX_DEFAULT_MODEL_ID,
 		modelsFactory: buildOpenAICodexModels,
 		defaults: { baseUrl: "https://chatgpt.com/backend-api/codex" },
-		metadata: { usageCostDisplay: "hide" },
+		configFields: [],
+		metadata: { usageCostDisplay: "subscription" },
 	},
 	{
 		id: "openai-codex-cli",
@@ -686,14 +995,15 @@ export const BUILTIN_SPECS: BuiltinSpec[] = [
 		defaultModelId: "gpt-5.3-codex",
 		modelsProviderId: "openai",
 		defaults: { baseUrl: "https://chatgpt.com/backend-api/codex" },
-		metadata: { usageCostDisplay: "hide" },
+		configFields: [],
+		metadata: { usageCostDisplay: "subscription" },
 	},
 	{
 		id: "anthropic",
 		name: "Anthropic",
 		description: "Creator of Claude, the AI assistant",
 		family: "anthropic",
-		popular: 4,
+		popular: 15,
 		capabilities: ["reasoning", "prompt-cache"],
 		defaultModelId: "claude-sonnet-4-6",
 		apiKeyEnv: ["ANTHROPIC_API_KEY"],
@@ -710,13 +1020,14 @@ export const BUILTIN_SPECS: BuiltinSpec[] = [
 		defaultModelId: "sonnet",
 		modelsFactory: buildClaudeCodeModels,
 		defaults: { baseUrl: "" },
+		configFields: [],
 	},
 	{
 		id: "gemini",
 		name: "Google Gemini",
 		description: "Google Gemini API",
 		family: "google",
-		popular: 9,
+		popular: 45,
 		capabilities: ["reasoning", "prompt-cache"],
 		defaultModelId: "gemma-4-26b",
 		apiKeyEnv: ["GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"],
@@ -739,6 +1050,7 @@ export const BUILTIN_SPECS: BuiltinSpec[] = [
 			"GOOGLE_VERTEX_LOCATION",
 		],
 		modelsProviderId: "vertex",
+		configFields: VERTEX_CONFIG_FIELDS,
 		metadata: ANTHROPIC_ROUTING_METADATA,
 	},
 	{
@@ -746,7 +1058,7 @@ export const BUILTIN_SPECS: BuiltinSpec[] = [
 		name: "AWS Bedrock",
 		description: "Amazon Bedrock managed foundation models",
 		family: "bedrock",
-		popular: 7,
+		popular: 30,
 		capabilities: ["reasoning", "prompt-cache"],
 		defaultModelId: "minimax.minimax-m2.5",
 		apiKeyEnv: [
@@ -757,6 +1069,7 @@ export const BUILTIN_SPECS: BuiltinSpec[] = [
 			"AWS_SESSION_TOKEN",
 		],
 		modelsProviderId: "bedrock",
+		configFields: BEDROCK_CONFIG_FIELDS,
 		metadata: ANTHROPIC_ROUTING_METADATA,
 	},
 	{
@@ -779,8 +1092,8 @@ export const BUILTIN_SPECS: BuiltinSpec[] = [
 		defaultModelId: "MiniMax-M2.5",
 		apiKeyEnv: ["MINIMAX_API_KEY"],
 		modelsProviderId: "minimax",
-		defaults: { baseUrl: "https://api.minimax.io/anthropic" },
-		metadata: ANTHROPIC_ROUTING_METADATA,
+		defaults: { baseUrl: "https://api.minimax.io/anthropic/v1" },
+		metadata: MINIMAX_THINKING_ROUTING_METADATA,
 	},
 	{
 		id: "opencode",
@@ -791,6 +1104,7 @@ export const BUILTIN_SPECS: BuiltinSpec[] = [
 		defaultModelId: "openai/gpt-5.4",
 		modelsProviderId: "opencode",
 		defaults: { baseUrl: "" },
+		configFields: [],
 	},
 	{
 		id: "dify",
@@ -800,6 +1114,18 @@ export const BUILTIN_SPECS: BuiltinSpec[] = [
 		defaultModelId: "default",
 		apiKeyEnv: ["DIFY_API_KEY"],
 		modelsFactory: () => ({}),
+	},
+	{
+		id: "sapaicore",
+		name: "SAP AI Core",
+		description: "SAP AI Core inference and orchestration platform",
+		family: "sap-ai-core",
+		client: "ai-sdk-community",
+		capabilities: ["tools", "reasoning", "prompt-cache"],
+		defaultModelId: "anthropic--claude-3.5-sonnet",
+		apiKeyEnv: ["AICORE_SERVICE_KEY", "VCAP_SERVICES"],
+		modelsProviderId: "sapaicore",
+		metadata: ANTHROPIC_ROUTING_METADATA,
 	},
 	...OPENAI_COMPATIBLE_SPECS,
 ];

@@ -1,4 +1,7 @@
 import {
+	AGENT_UNEXPECTED_REASONING_TOKENS_EVENT,
+	type CaptureAgentUnexpectedReasoningTokensInput,
+	captureAgentUnexpectedReasoningTokens,
 	type ITelemetryService,
 	SDK_ERROR_TELEMETRY_EVENT,
 	type TelemetryProperties,
@@ -32,6 +35,9 @@ export const CORE_TELEMETRY_EVENTS = {
 	SESSION: {
 		STARTED: "session.started",
 		ENDED: "session.ended",
+	},
+	AGENT: {
+		UNEXPECTED_REASONING_TOKENS: AGENT_UNEXPECTED_REASONING_TOKENS_EVENT,
 	},
 	USER: {
 		AUTH_STARTED: "user.auth_started",
@@ -72,8 +78,34 @@ export const CORE_TELEMETRY_EVENTS = {
 	},
 	SDK: {
 		ERROR: SDK_ERROR_TELEMETRY_EVENT,
+		TOOL_TIMEOUT: "sdk.tool_timeout",
+	},
+	FEATURE_FLAGS: {
+		FLAG_CALLED: "$feature_flag_called",
 	},
 } as const;
+
+export interface RunCommandsTimeoutTelemetryProperties {
+	tool_name: "run_commands";
+	effective_timeout_ms: number;
+	timeout_source: "default_setting" | "configured_setting";
+	command_count: number;
+	duration_ms: number;
+	ulid?: string;
+	mode?: string;
+	source?: string;
+	session_id?: string;
+	agent_id?: string;
+	conversation_id?: string;
+	run_id?: string;
+	iteration?: number;
+	tool_call_id?: string;
+}
+
+export {
+	captureAgentUnexpectedReasoningTokens,
+	type CaptureAgentUnexpectedReasoningTokensInput,
+};
 
 export interface WorkspaceInitializedProperties {
 	root_count: number;
@@ -419,6 +451,27 @@ export function captureProviderApiError(
 		errorMessage: truncateErrorMessage(properties.errorMessage) ?? "unknown",
 		timestamp: new Date().toISOString(),
 	});
+}
+
+export function captureRunCommandsTimeout(
+	telemetry: ITelemetryService | undefined,
+	properties: RunCommandsTimeoutTelemetryProperties,
+): void {
+	emit(
+		telemetry,
+		CORE_TELEMETRY_EVENTS.SDK.TOOL_TIMEOUT,
+		stripUndefinedProperties(properties),
+	);
+}
+
+function stripUndefinedProperties(properties: object): TelemetryProperties {
+	const result: TelemetryProperties = {};
+	for (const [key, value] of Object.entries(properties)) {
+		if (value !== undefined) {
+			result[key] = value;
+		}
+	}
+	return result;
 }
 
 export function captureMentionUsed(

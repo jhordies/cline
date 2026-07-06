@@ -11,6 +11,7 @@
  */
 
 import {
+	type AgentExtensionMcpServer,
 	type AutomationEventEnvelope,
 	normalizePluginManifest,
 	type PluginManifest,
@@ -37,7 +38,24 @@ interface PluginTool {
 interface PluginCommand {
 	name: string;
 	description?: string;
-	handler?: (input: string) => Promise<string>;
+	handler?: (
+		input: string,
+	) => Promise<PluginCommandResult> | PluginCommandResult;
+}
+
+// Keep this local mirror in sync with AgentExtensionCommandResult from @cline/shared.
+// The sandbox bootstrap runs in an isolated process and avoids host package imports.
+type PluginCommandResult =
+	| string
+	| {
+			reply?: string;
+			submitPrompt?: string;
+	  };
+
+interface PluginRule {
+	id: string;
+	content: string | (() => string | Promise<string>);
+	source?: string;
 }
 
 interface PluginMessageBuilder {
@@ -64,9 +82,11 @@ interface PluginAutomationEventType {
 interface PluginApi {
 	registerTool(tool: PluginTool): void;
 	registerCommand(command: PluginCommand): void;
+	registerRule(rule: PluginRule): void;
 	registerMessageBuilder(builder: PluginMessageBuilder): void;
 	registerProvider(provider: PluginProvider): void;
 	registerAutomationEventType(eventType: PluginAutomationEventType): void;
+	registerMcpServer(server: AgentExtensionMcpServer): void;
 }
 
 interface PluginSetupCtx {
@@ -103,6 +123,14 @@ interface ContributionDescriptor {
 	metadata?: Record<string, unknown>;
 }
 
+interface RuleContributionDescriptor {
+	id: string;
+	ruleId: string;
+	content?: string;
+	source?: string;
+	hasContentHandler?: boolean;
+}
+
 interface AutomationEventTypeDescriptor {
 	id: string;
 	eventType: string;
@@ -123,9 +151,11 @@ interface PluginDescriptor {
 	contributions: {
 		tools: ContributionDescriptor[];
 		commands: ContributionDescriptor[];
+		rules: RuleContributionDescriptor[];
 		messageBuilders: ContributionDescriptor[];
 		providers: ContributionDescriptor[];
 		automationEventTypes: AutomationEventTypeDescriptor[];
+		mcpServers: AgentExtensionMcpServer[];
 		shortcuts?: ContributionDescriptor[];
 		flags?: ContributionDescriptor[];
 	};
@@ -158,6 +188,7 @@ interface PluginState {
 	handlers: {
 		tools: Map<string, PluginTool["execute"]>;
 		commands: Map<string, NonNullable<PluginCommand["handler"]>>;
+		rules: Map<string, () => string | Promise<string>>;
 		messageBuilders: Map<string, PluginMessageBuilder["build"]>;
 	};
 }
@@ -405,15 +436,18 @@ async function loadPluginDescriptor(args: {
 		const contributions: PluginDescriptor["contributions"] = {
 			tools: [],
 			commands: [],
+			rules: [],
 			messageBuilders: [],
 			providers: [],
 			automationEventTypes: [],
+			mcpServers: [],
 			shortcuts: [],
 			flags: [],
 		};
 		const handlers: PluginState["handlers"] = {
 			tools: new Map(),
 			commands: new Map(),
+			rules: new Map(),
 			messageBuilders: new Map(),
 		};
 
@@ -441,6 +475,25 @@ async function loadPluginDescriptor(args: {
 					description: command.description,
 				});
 			},
+			registerRule: (rule) => {
+				const id = makeId(args.pluginId, "rule");
+				if (typeof rule.content === "function") {
+					handlers.rules.set(id, rule.content);
+					contributions.rules.push({
+						id,
+						ruleId: rule.id,
+						source: rule.source,
+						hasContentHandler: true,
+					});
+					return;
+				}
+				contributions.rules.push({
+					id,
+					ruleId: rule.id,
+					content: rule.content,
+					source: rule.source,
+				});
+			},
 			registerMessageBuilder: (builder) => {
 				const id = makeId(args.pluginId, "builder");
 				handlers.messageBuilders.set(id, builder.build);
@@ -459,6 +512,9 @@ async function loadPluginDescriptor(args: {
 					id: makeId(args.pluginId, "automation_event"),
 					...normalizeAutomationEventType(eventType),
 				});
+			},
+			registerMcpServer: (server) => {
+				contributions.mcpServers.push(server);
 			},
 		};
 
@@ -668,7 +724,7 @@ async function executeCommand(args: {
 	pluginId: string;
 	contributionId: string;
 	input: string;
-}): Promise<string> {
+}): Promise<PluginCommandResult> {
 	const state = getPlugin(args.pluginId);
 	const handler = state.handlers.commands.get(args.contributionId);
 	if (typeof handler !== "function") {
@@ -690,6 +746,18 @@ async function buildMessages(args: {
 	return await handler(args.messages);
 }
 
+async function resolveRuleContent(args: {
+	pluginId: string;
+	contributionId: string;
+}): Promise<string> {
+	const state = getPlugin(args.pluginId);
+	const handler = state.handlers.rules.get(args.contributionId);
+	if (typeof handler !== "function") {
+		return "";
+	}
+	return await handler();
+}
+
 // ---------------------------------------------------------------------------
 // Message dispatch
 // ---------------------------------------------------------------------------
@@ -700,6 +768,7 @@ const methods: Record<string, (args: never) => Promise<unknown>> = {
 	executeTool,
 	executeCommand,
 	buildMessages,
+	resolveRuleContent,
 };
 
 process.on(

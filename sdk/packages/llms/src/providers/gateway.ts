@@ -1,4 +1,3 @@
-import { estimateTokens } from "@cline/shared";
 import type {
 	AgentMessage,
 	AgentModel,
@@ -13,6 +12,7 @@ import type {
 	GatewayStreamRequest,
 	ITelemetryService,
 } from "@cline/shared";
+import { estimateTokens } from "@cline/shared";
 import { toAsyncIterable } from "./async";
 import { BUILTIN_PROVIDER_REGISTRATIONS } from "./builtins-runtime";
 import { GatewayRegistry } from "./registry";
@@ -20,6 +20,19 @@ import { GatewayRegistry } from "./registry";
 export type * from "@cline/shared";
 
 const GATEWAY_OUTPUT_RESERVE_TOKENS = 1_024;
+
+function mergeRequestMetadata(
+	defaults: Record<string, unknown> | undefined,
+	request: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+	if (!defaults && !request) {
+		return undefined;
+	}
+	return {
+		...(defaults ?? {}),
+		...(request ?? {}),
+	};
+}
 
 export interface Gateway {
 	registerProvider(registration: GatewayProviderRegistration): this;
@@ -92,9 +105,10 @@ class GatewayModelAdapter implements AgentModel {
 			maxTokens:
 				(request.options?.maxTokens as number | undefined) ??
 				this.defaults?.maxTokens,
-			metadata:
-				(request.options?.metadata as Record<string, unknown> | undefined) ??
+			metadata: mergeRequestMetadata(
 				this.defaults?.metadata,
+				request.options?.metadata as Record<string, unknown> | undefined,
+			),
 			reasoning:
 				requestedReasoning ?? legacyReasoning ?? this.defaults?.reasoning,
 			signal: request.signal ?? this.defaults?.signal,
