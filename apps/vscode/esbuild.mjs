@@ -156,9 +156,6 @@ const extensionConfig = {
 	entryPoints: ["src/extension.ts"],
 	outfile: `${destDir}/extension.js`,
 	external: ["vscode"],
-	// Force the Anthropic SDK node shim to be included before any SDK module loads.
-	// Without inject, the side-effect-only import gets tree-shaken in production builds.
-	inject: ["src/shims-node-inject.js"],
 }
 
 // Standalone-specific configuration
