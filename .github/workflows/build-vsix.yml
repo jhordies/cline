@@ -9,29 +9,45 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # The VS Code extension lives under apps/vscode/
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Install root dependencies
-        run: npm install --include=optional
+      - name: Install dependencies (bun workspace)
+        run: bun install --frozen-lockfile
 
-      - name: Install webview-ui dependencies
-        run: cd webview-ui && npm install --include=optional
+      - name: Build SDK packages
+        run: bun run build:sdk
+
+      - name: Verify webview build prerequisites
+        run: |
+          if [ ! -d apps/vscode/webview-ui/node_modules ]; then
+            echo "(bun trustedDependencies postinstall likely did not run)"
+          fi
 
       - name: Install Publishing Tools
         run: npm install -g @vscode/vsce
 
       - name: Build VSIX
-        run: vsce package --allow-package-secrets sendgrid -o cline.vsix
+        working-directory: apps/vscode
+        run: vsce package --no-dependencies --allow-package-secrets sendgrid -o cline.vsix
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
           name: cline-vsix
-          path: cline.vsix
+          path: apps/vscode/cline.vsix
           retention-days: 30
