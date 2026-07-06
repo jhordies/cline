@@ -1,10 +1,13 @@
 import { openAiModelInfoSafeDefaults } from "@shared/api"
+import { AnthropicModelsRequest } from "@shared/proto/cline/models"
 import type { Mode } from "@shared/storage/types"
 import { isClaudeOpusAdaptiveThinkingModel, resolveClaudeOpusAdaptiveThinking } from "@shared/utils/reasoning-support"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useProviderConfig } from "@/hooks/useProviderConfig"
 import { useProviderModelSelection } from "@/hooks/useProviderModelSelection"
 import { useStaticProviderSelection } from "@/hooks/useStaticProviderSelection"
+import { ModelsServiceClient } from "@/services/grpc-client"
 import { ApiKeyField } from "../common/ApiKeyField"
 import { BaseUrlField } from "../common/BaseUrlField"
 import { ModelInfoView } from "../common/ModelInfoView"
@@ -69,8 +72,45 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 	const adaptiveThinkingDefaultEffort =
 		resolveClaudeOpusAdaptiveThinking(modeFields.reasoningEffort, modeFields.thinkingBudgetTokens).effort ?? "none"
 
+	// ── Dynamic model fetching from custom base URL (e.g. Amazon Q gateway) ──
+	const [remoteModelIds, setRemoteModelIds] = useState<string[]>([])
+	const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+	const debouncedRefreshModels = useCallback((baseUrl?: string | null) => {
+		if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+		if (!baseUrl) {
+			setRemoteModelIds([])
+			return
+		}
+		debounceTimerRef.current = setTimeout(async () => {
+			try {
+				const result = await ModelsServiceClient.refreshAnthropicModels(
+					AnthropicModelsRequest.create({ baseUrl }),
+				)
+				setRemoteModelIds(result.values ?? [])
+			} catch {
+				setRemoteModelIds([])
+			}
+		}, 500)
+	}, [])
+
+	useEffect(() => {
+		return () => {
+			if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+		}
+	}, [])
+
+	// Fetch remote models when config loads or base URL changes
+	useEffect(() => {
+		debouncedRefreshModels(config?.baseUrl)
+	}, [config?.baseUrl, debouncedRefreshModels])
+
+	const hasRemoteModels = remoteModelIds.length > 0
+	const usingCustomUrl = !!config?.baseUrl
+
 	const handleBaseUrlChange = (value: string) => {
 		void write({ baseUrl: value }).catch((err) => console.error("Failed to update Anthropic base URL:", err))
+		debouncedRefreshModels(value || null)
 	}
 
 	const handleModelChange = (modelId: string) => {
@@ -114,12 +154,28 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 
 			{showModelOptions && (
 				<>
-					<ModelSelector
-						label="Model"
-						models={models}
-						onChange={(e) => handleModelChange(e.target.value)}
-						selectedModelId={selectedModelId}
-					/>
+					{usingCustomUrl && hasRemoteModels ? (
+						<div style={{ marginBottom: 10 }}>
+							<label style={{ display: "block", fontWeight: 500, marginBottom: 4 }}>Model</label>
+							<select
+								value={selectedModelId}
+								onChange={(e) => handleModelChange(e.target.value)}
+								style={{ width: "100%", padding: "4px 6px" }}>
+								{remoteModelIds.map((id) => (
+									<option key={id} value={id}>
+										{id}
+									</option>
+								))}
+							</select>
+						</div>
+					) : (
+						<ModelSelector
+							label="Model"
+							models={models}
+							onChange={(e) => handleModelChange(e.target.value)}
+							selectedModelId={selectedModelId}
+						/>
+					)}
 
 					{isAdaptiveThinkingModel ? (
 						<ReasoningEffortSelector
